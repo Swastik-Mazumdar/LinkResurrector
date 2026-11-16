@@ -88,6 +88,22 @@ test('429 and 401 are restricted; 404 and 410 classify as gone', async () => {
   assert.equal((await checkUrl('https://e.example/')).reason, 'HTTP_500_SERVER_ERROR');
 });
 
+test('error responses are NOT reachable — 404/410/5xx can never read as alive', async () => {
+  // Regression: `reachable` used to be set true for ANY HTTP response, so
+  // hard 404 originals were shown as 'active' in the vault.
+  const fetcher = mockFetcher({
+    'https://a.example/': { status: 404, body: 'not found page content' },
+    'https://b.example/': { status: 410, body: 'gone forever' },
+    'https://c.example/': { status: 500, body: 'oops' },
+    'https://d.example/': { status: 502, body: 'bad gateway' },
+  });
+  const checkUrl = createHealthChecker({ fetcher, config, logger });
+  assert.equal((await checkUrl('https://a.example/')).reachable, false);
+  assert.equal((await checkUrl('https://b.example/')).reachable, false);
+  assert.equal((await checkUrl('https://c.example/')).reachable, false);
+  assert.equal((await checkUrl('https://d.example/')).reachable, false);
+});
+
 test('HTTP 200 error pages are flagged as suspect (not trusted as valid)', async () => {
   const fetcher = mockFetcher({
     'https://err.example/': {

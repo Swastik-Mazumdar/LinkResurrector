@@ -60,7 +60,14 @@ export function createHealthChecker({ fetcher, config, logger }) {
       });
 
       record.httpStatus = response.status;
-      record.reachable = true;
+      // "Reachable" means the URL still serves the requested resource.
+      // 404/410 mean the page is gone and 5xx means the server is not
+      // serving — marking those reachable made hard-404 originals display
+      // as 'active' in the vault. Restriction responses (401/403/429 and
+      // other 4xx) still count: the site exists and a human browser can
+      // open it.
+      const status = response.status;
+      record.reachable = status < 500 && status !== 404 && status !== 410;
       record.redirectChain = response.chain;
       record.finalUrl = response.finalUrl;
       record.contentType = response.contentType;
