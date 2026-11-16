@@ -20,10 +20,10 @@ import { tmpdir } from 'node:os';
 const HOST_SCRIPT = fileURLToPath(new URL('../native-host.js', import.meta.url));
 
 /** Starts the helper and returns a small request/response harness. */
-function startHost() {
+function startHost(extraArgs = []) {
   // Hermetic per-test lock so parallel/killed helpers never pollute each other.
   const lockPath = `${tmpdir()}/lr-native-host-test-${Date.now()}-${Math.random().toString(36).slice(2)}.lock`;
-  const child = spawn(process.execPath, [HOST_SCRIPT], {
+  const child = spawn(process.execPath, [HOST_SCRIPT, ...extraArgs], {
     stdio: ['pipe', 'pipe', 'pipe'],
     env: { ...process.env, LR_LOCK_PATH: lockPath },
   });
@@ -68,6 +68,19 @@ function startHost() {
     },
   };
 }
+
+test('the helper tolerates the browser-appended origin argument', async (t) => {
+  // Chromium's new native-host launcher (Brave 157+) launches `path` with the
+  // caller origin as argv instead of forwarding manifest "args". A wrapped
+  // install therefore hands the helper an extra argv entry that must be
+  // ignored so framing still works.
+  const host = startHost(['chrome-extension://doieaionondibdedkgbifbepfoppnicf/']);
+  t.after(() => host.close());
+  const id = host.request({ type: 'health' });
+  const [reply] = await host.repliesFor(id);
+  assert.equal(reply.type, 'done');
+  assert.equal(reply.result.ok, true);
+});
 
 test('health request returns the on-device runtime descriptor', async (t) => {
   const host = startHost();

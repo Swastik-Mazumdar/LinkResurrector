@@ -3,6 +3,7 @@
 import { createEngine, config } from './src/engine.js';
 import { createLogger } from './src/logger.js';
 import { createNativeDecoder, encodeNativeMessage } from './src/nativeProtocol.js';
+import { appendFileSync } from 'node:fs';
 import { open, stat, unlink } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -15,6 +16,27 @@ const engine = createEngine();
 // per-user tmpdir lock so concurrent helpers on one machine cooperate.
 const lockPath = process.env.LR_LOCK_PATH
   ?? join(tmpdir(), `linkresurrector-${typeof process.getuid === 'function' ? process.getuid() : 'user'}.lock`);
+
+/**
+ * Content-free diagnostics: timestamps, PIDs and event kinds only — never
+ * URLs or recovered data. Chrome discards the helper's stderr, so this
+ * append-only log is the only way to see whether/why the process died.
+ */
+const diagPath = join(tmpdir(), 'linkresurrector-helper-diag.log');
+function diag(event, fields = {}) {
+  try {
+    appendFileSync(diagPath, `${JSON.stringify({ ts: new Date().toISOString(), event, pid: process.pid, ...fields })}\n`);
+  } catch { /* diagnostics must never break the host */ }
+}
+diag('launch', { node: process.versions.node });
+process.on('uncaughtException', (error) => {
+  diag('crash', { kind: 'uncaughtException', message: String(error?.message ?? error), at: String(error?.stack ?? '').split('\n')[1] ?? '' });
+  process.exit(1);
+});
+process.on('unhandledRejection', (reason) => {
+  diag('crash', { kind: 'unhandledRejection', message: String(reason?.message ?? reason) });
+  process.exit(1);
+});
 
 function send(message) {
   try { process.stdout.write(encodeNativeMessage(message)); }
@@ -35,6 +57,7 @@ async function handle(message) {
     ? message.requestId
     : null;
   if (!requestId) return;
+  diag('request', { type: message?.type ?? null });
   try {
     if (message.type === 'health') {
       send({ requestId, type: 'done', result: { ok: true, runtime: 'native-messaging', searchCoverage: engine.coverage, maxDepth: config.maxDepth } });
@@ -78,6 +101,7 @@ async function handle(message) {
     }
   } catch (error) {
     logger.error('native request failed', { requestId, code: error?.code ?? 'INTERNAL_SERVER_ERROR', message: error?.message });
+    diag('error-reply', { code: error?.code ?? 'INTERNAL_SERVER_ERROR' });
     send({ requestId, type: 'error', error: { code: error?.code ?? 'INTERNAL_SERVER_ERROR', message: String(error?.message ?? 'Recovery failed.').slice(0, 500) } });
   }
 }
@@ -116,8 +140,16 @@ async function acquireRecoveryLock() {
 process.stdin.on('data', createNativeDecoder((message) => { void handle(message); }, (error) => {
   inputFailed = true;
   logger.error('invalid native input', { message: error.message });
+  diag('invalid-input', { message: error.message });
   process.exitCode = 1;
   process.stdin.destroy();
 }));
-process.stdin.on('end', () => { if (!inputFailed) process.exitCode ??= 0; });
-process.stdin.on('error', (error) => { logger.error('native input failed', { message: error.message }); process.exitCode = 1; });
+process.stdin.on('end', () => {
+  if (!inputFailed) process.exitCode ??= 0;
+  diag('exit', { code: process.exitCode ?? 0 });
+});
+process.stdin.on('error', (error) => {
+  logger.error('native input failed', { message: error.message });
+  diag('input-error', { message: error.message });
+  process.exitCode = 1;
+});

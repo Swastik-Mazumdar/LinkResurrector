@@ -15,7 +15,7 @@ node_major="$("$node_bin" -p 'Number(process.versions.node.split(".")[0])')"
 if (( node_major < 18 )); then echo "Node.js 18 or newer is required (found $node_major)." >&2; exit 2; fi
 source_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 python3 - "$extension_id" "$node_bin" "$source_dir" <<'PY'
-import json, pathlib, sys
+import json, pathlib, sys, os
 import shutil
 extension_id, node, source = sys.argv[1:]
 base = pathlib.Path.home()
@@ -26,7 +26,19 @@ shutil.copy2(pathlib.Path(source)/"native-host.js", install/"native-host.js")
 shutil.copy2(pathlib.Path(source)/".env.example", install.parent/".env.example")
 (install/"package.json").write_text('{"type":"module"}\n')
 script = install/"native-host.js"
-manifest = {"name":"com.linkresurrector.native", "description":"LinkResurrector on-device URL recovery helper", "path":node, "type":"stdio", "args":[str(script)], "allowed_origins":[f"chrome-extension://{extension_id}/"]}
+# Chromium's new native-host launcher (M124+, shipped in Brave 157) no longer
+# forwards manifest "args" — it launches `path` with only the caller origin.
+# So the entrypoint lives in an executable wrapper instead: version-proof on
+# old launchers too (they pass args=[] plus the origin, which is ignored).
+launcher = install/"linkresurrector-host.sh"
+launcher.write_text(
+    "#!/usr/bin/env bash\n"
+    "# LinkResurrector native messaging host launcher. \"$@\" is the caller\n"
+    "# origin appended by the browser; the helper ignores extra argv.\n"
+    f"exec {json.dumps(node)} {json.dumps(str(script))} \"$@\"\n"
+)
+os.chmod(launcher, 0o755)
+manifest = {"name":"com.linkresurrector.native", "description":"LinkResurrector on-device URL recovery helper", "path":str(launcher), "type":"stdio", "allowed_origins":[f"chrome-extension://{extension_id}/"]}
 targets = [base/"Library/Application Support/Google/Chrome/NativeMessagingHosts", base/"Library/Application Support/BraveSoftware/Brave-Browser/NativeMessagingHosts"]
 for target in targets:
     target.mkdir(parents=True, exist_ok=True)
