@@ -251,3 +251,9 @@ LinkResurrector/
 <div align="center">
   <b>LinkResurrector v1.0.0</b> • Built with precision, security, and integrity.
 </div>
+
+---
+
+## 📄 Copyright
+
+Copyright © 2026 Swastik Mazumdar. All rights reserved.
