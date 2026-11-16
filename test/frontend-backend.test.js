@@ -66,3 +66,37 @@ test('unverified suggestions are never stored as a verified successor', () => {
   assert.equal(patch.successorUrl, null);
   assert.equal(patch.successorVerified, false);
 });
+
+test('self-heal: getLinks un-sticks checks interrupted by a crash or reload', async () => {
+  const original = globalThis.chrome;
+  const store = new Map();
+  const stale = Date.now() - 20 * 60_000;
+  store.set('lr_links', [
+    { id: 'a', url: 'https://a.example/', addedAt: 1, status: 'checking', prevStatus: 'active', checkingStartedAt: stale },
+    { id: 'b', url: 'https://b.example/', addedAt: 2, status: 'checking', checkingStartedAt: Date.now() - 10_000 }, // live check
+    { id: 'c', url: 'https://c.example/', addedAt: 3, status: 'active' },
+    'garbage-row',
+  ]);
+  globalThis.chrome = { storage: { local: {
+    get: async (key) => ({ [key]: store.get(key) }),
+    set: async (obj) => { for (const [k, v] of Object.entries(obj)) store.set(k, v); },
+  } } };
+  try {
+    // Fresh module instance: an earlier static import cached isExtensionEnv
+    // with chrome undefined, so re-evaluate the storage adapter binding.
+    const { getLinks } = await import('../src/services/linkService.js?self-heal-test');
+    const links = await getLinks();
+    // corrupt row dropped, live check preserved, stale check un-stuck
+    assert.equal(links.length, 3);
+    const healed = links.find((l) => l.id === 'a');
+    assert.equal(healed.status, 'active');
+    assert.equal(healed.lastError?.code, 'CHECK_INTERRUPTED');
+    assert.equal(links.find((l) => l.id === 'b').status, 'checking');
+    // persisted so the fix survives without another heal pass
+    const persisted = store.get('lr_links');
+    assert.equal(persisted.length, 3);
+    assert.equal(persisted.find((l) => l.id === 'a').status, 'active');
+  } finally {
+    if (original === undefined) delete globalThis.chrome; else globalThis.chrome = original;
+  }
+});

@@ -79,9 +79,13 @@ export default function DashboardApp() {
       });
       const latest = await getLinks();
       setLinks(latest);
-      flash(latest.some((link) => link.lastError)
-        ? 'Some links could not reach the backend — see row details'
-        : 'Recovery checks complete — vault is up to date', latest.some((link) => link.lastError) ? 'danger' : 'default');
+      const errored = latest.filter((link) => link.lastError);
+      flash(
+        errored.length
+          ? `${errored.length} link${errored.length === 1 ? '' : 's'} could not complete — ${[...new Set(errored.map((link) => link.lastError.code))].join(', ')}`
+          : 'Recovery checks complete — vault is up to date',
+        errored.length ? 'danger' : 'default',
+      );
     } catch {
       flash('Auto-check failed — try again', 'danger');
     } finally {

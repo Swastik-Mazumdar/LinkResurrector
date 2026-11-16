@@ -105,9 +105,9 @@ export default function PopupApp() {
         transition={{ delay: 0.05, type: 'spring', stiffness: 300, damping: 24 }}
         className="mt-3.5 flex items-center justify-between rounded-xl border border-white/10 bg-panel/80 px-3.5 py-3"
       >
-        <div className="flex items-center gap-3">
+        <div className="flex min-w-0 items-center gap-3">
           <span
-            className={`flex h-8 w-8 items-center justify-center rounded-lg border ${
+            className={`flex h-8 w-8 shrink-0 items-center justify-center rounded-lg border ${
               monitoring
                 ? 'border-crimson/40 text-crimson shadow-glow-xs'
                 : 'border-white/10 text-zinc-500'
@@ -115,9 +115,9 @@ export default function PopupApp() {
           >
             <Icon name="power" className="h-4 w-4" />
           </span>
-          <div>
-            <div className="text-sm font-semibold text-white">Link Monitoring</div>
-            <div className="text-[11px] text-zinc-500">
+          <div className="min-w-0">
+            <div className="truncate text-sm font-semibold text-white">Link Monitoring</div>
+            <div className="truncate text-[11px] text-zinc-500">
               {monitoring ? 'Watchdog active — hunting 404s' : 'Paused — links unchecked'}
             </div>
           </div>

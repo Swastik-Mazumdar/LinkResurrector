@@ -30,6 +30,13 @@ const chromeStorage =
 /** True inside the extension runtime; false in browser preview. */
 export const isExtensionEnv = Boolean(chromeStorage);
 
+/**
+ * Self-heal threshold. A real recovery job is bounded well below this
+ * (client timeout 180s + bounded retries), so any link still marked
+ * 'checking' after this long is debris from a crash/reload/interrupt.
+ */
+const CHECK_STALE_MS = 15 * 60_000;
+
 /* ------------------------------------------------------------------ */
 /* Low-level storage adapter (the ONLY place that knows about storage) */
 /* ------------------------------------------------------------------ */
@@ -66,14 +73,62 @@ function uid() {
 /* ------------------------------------------------------------------ */
 
 /**
+ * Repairs vault damage so no user action is ever needed after a mishap:
+ * - drops corrupt rows (not objects, missing id/url) so the UI can't break;
+ * - un-sticks links left in 'checking' by a killed service worker, an
+ *   extension reload, or a browser quit mid-check — restoring the honest
+ *   pre-check status and recording why.
+ * Returns a repaired array when something changed, otherwise null.
+ */
+function healLinks(links) {
+  let changed = false;
+  const healed = [];
+  for (const raw of links) {
+    if (!raw || typeof raw !== 'object' || typeof raw.id !== 'string' || typeof raw.url !== 'string' || !raw.addedAt) {
+      changed = true; // unrecoverable row: drop it rather than break the UI
+      continue;
+    }
+    let link = raw;
+    if (link.status === 'checking') {
+      const startedAt = link.checkingStartedAt ?? 0;
+      if (!startedAt || Date.now() - startedAt > CHECK_STALE_MS) {
+        link = {
+          ...link,
+          status: link.prevStatus ?? 'dead',
+          prevStatus: null,
+          checkingStartedAt: null,
+          checkingPhase: null,
+          checkingDetail: null,
+          lastError: {
+            code: 'CHECK_INTERRUPTED',
+            message: 'A previous check was interrupted before it finished and has been reset.',
+          },
+        };
+        changed = true;
+      }
+    }
+    healed.push(link);
+  }
+  return changed ? healed : null;
+}
+
+/**
  * Returns saved links. A new vault starts empty; recovery results are never
  * simulated or seeded as though they came from external providers.
+ * Every read self-heals crash debris, so all views start from clean data.
  */
 export async function getLinks() {
   const stored = await readStore(LINKS_KEY);
-  if (Array.isArray(stored)) return stored;
-  await writeStore(LINKS_KEY, []);
-  return [];
+  if (!Array.isArray(stored)) {
+    await writeStore(LINKS_KEY, []);
+    return [];
+  }
+  const healed = healLinks(stored);
+  if (healed) {
+    await writeStore(LINKS_KEY, healed);
+    return healed;
+  }
+  return stored;
 }
 
 /**
@@ -108,6 +163,7 @@ export async function addLink({ url, title, category = 'Uncategorized', status =
     status,
     statusCode,
     addedAt: Date.now(),
+    checkingStartedAt: Date.now(),
     lastChecked: null,
   };
   await writeStore(LINKS_KEY, [link, ...links]);
@@ -172,6 +228,7 @@ export function resultToLinkPatch(result) {
     archiveUrl: result?.wayback?.fallbackUrl ?? null,
     recoveryResult: result,
     recoveryCheckedAt: result?.completedAt ?? Date.now(),
+    prevStatus: null,
     checkingPhase: null,
     checkingDetail: null,
     lastError: null,
@@ -184,8 +241,17 @@ export async function checkLinkById(id, { onUpdate, onProgress } = {}) {
   const link = (await getLinks()).find((item) => item.id === id);
   if (!link) return null;
 
+  // Remember the pre-check status so a killed helper/disconnect can restore
+  // it — this also un-sticks links left in 'checking' by an earlier crash.
+  const prevStatus = link.status === 'checking' ? (link.prevStatus ?? 'dead') : link.status;
+
   const started = await updateLink(link.id, {
-    status: 'checking', checkingPhase: 'initializing', checkingDetail: 'Starting recovery job.', lastError: null,
+    status: 'checking',
+    prevStatus,
+    checkingStartedAt: Date.now(),
+    checkingPhase: 'initializing',
+    checkingDetail: 'Starting recovery job.',
+    lastError: null,
   });
   onUpdate?.(started ?? { ...link, status: 'checking' });
   try {
@@ -202,15 +268,19 @@ export async function checkLinkById(id, { onUpdate, onProgress } = {}) {
         onUpdate?.(updated ?? { ...link, ...phasePatch });
       },
     });
-    const updated = await updateLink(link.id, resultToLinkPatch(result));
+    const updated = await updateLink(link.id, { ...resultToLinkPatch(result), prevStatus: null });
     onUpdate?.(updated ?? { ...link, ...resultToLinkPatch(result) });
     return updated;
   } catch (error) {
     const patch = {
-      status: link.status,
+      // Restore the honest pre-check status; never leave a link in 'checking'.
+      status: prevStatus === 'checking' ? 'dead' : prevStatus,
+      prevStatus: null,
+      checkingStartedAt: null,
       checkingPhase: null,
       checkingDetail: null,
       lastError: { code: error?.code ?? 'BACKEND_ERROR', message: String(error?.message ?? error) },
+      lastChecked: Date.now(),
     };
     const updated = await updateLink(link.id, patch);
     onUpdate?.(updated ?? { ...link, ...patch });

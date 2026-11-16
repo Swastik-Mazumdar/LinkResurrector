@@ -9,6 +9,13 @@ chrome.runtime.onInstalled.addListener(() => {
   chrome.alarms.create(ALARM_NAME, { periodInMinutes: CHECK_INTERVAL_MINUTES });
 });
 
+// Self-heal: the alarm can be lost to cleared storage or a partial install.
+// Every service-worker wake verifies it exists and recreates it if missing,
+// so monitoring resumes without any user action.
+chrome.alarms.get(ALARM_NAME, (existing) => {
+  if (!existing) chrome.alarms.create(ALARM_NAME, { periodInMinutes: CHECK_INTERVAL_MINUTES });
+});
+
 chrome.alarms.onAlarm.addListener((alarm) => {
   if (alarm.name === ALARM_NAME) void runHealthCheck();
 });

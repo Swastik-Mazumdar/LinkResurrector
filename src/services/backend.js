@@ -12,8 +12,21 @@ export function verifyUrl(url) {
 }
 
 /** Runs recovery on the user's computer and forwards actual engine phases. */
-export function resurrectUrl(url, { onProgress = () => {}, titleHint } = {}) {
-  return requestNative('recover', { url, titleHint }, onProgress);
+export async function resurrectUrl(url, { onProgress = () => {}, titleHint } = {}) {
+  // The helper serializes recovery jobs with a per-user cross-process lock,
+  // so a concurrent sweep (30-min alarm, save-time check, or another view)
+  // legitimately holds it. Retry a bounded number of times instead of
+  // surfacing a RATE_LIMITED failure to the user.
+  const MAX_ATTEMPTS = 3;
+  const RETRY_DELAY_MS = 20_000;
+  for (let attempt = 1; ; attempt += 1) {
+    try {
+      return await requestNative('recover', { url, titleHint }, onProgress);
+    } catch (error) {
+      if (error?.code !== 'RATE_LIMITED' || attempt >= MAX_ATTEMPTS) throw error;
+      await new Promise((resolve) => setTimeout(resolve, RETRY_DELAY_MS));
+    }
+  }
 }
 
 function requestNative(type, payload = {}, onProgress = () => {}) {

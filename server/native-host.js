@@ -93,14 +93,16 @@ async function acquireRecoveryLock() {
       if (error.code !== 'EEXIST') throw error;
       try {
         const [raw, info] = await Promise.all([import('node:fs/promises').then((fs) => fs.readFile(lockPath, 'utf8')), stat(lockPath)]);
-        const record = JSON.parse(raw);
+        let record = null;
+        try { record = JSON.parse(raw); } catch { /* corrupt record */ }
         let alive = false;
-        if (Number.isInteger(record.pid) && record.pid > 0) {
+        if (record && Number.isInteger(record.pid) && record.pid > 0) {
           try { process.kill(record.pid, 0); alive = true; } catch (probeError) { alive = probeError.code === 'EPERM'; }
         }
-        // Expire abandoned locks only when the owning PID is gone and the
-        // file has remained for at least five minutes (well beyond job budget).
-        if (alive || Date.now() - info.mtimeMs < 5 * 60_000) return null;
+        // A live owner holds the job. A dead owner has provably released it,
+        // so reclaim immediately; a corrupt record gets the safety window.
+        if (alive) return null;
+        if (!record && Date.now() - info.mtimeMs < 5 * 60_000) return null;
         await unlink(lockPath);
       } catch (inspectError) {
         if (inspectError.code === 'ENOENT') continue;
