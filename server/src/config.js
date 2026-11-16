@@ -107,4 +107,17 @@ export const config = {
       endpoint: 'https://www.googleapis.com/customsearch/v1',
     },
   },
+
+  /* Public web-mention sources (forums + open web) — official key-free APIs */
+  mentions: {
+    reddit:
+      process.env.LR_REDDIT_ENDPOINT ||
+      'https://www.reddit.com/search.json',
+    hackerNews:
+      process.env.LR_HN_ENDPOINT ||
+      'https://hn.algolia.com/api/v1/search',
+    duckDuckGo:
+      process.env.LR_DDG_ENDPOINT ||
+      'https://api.duckduckgo.com/',
+  },
 };

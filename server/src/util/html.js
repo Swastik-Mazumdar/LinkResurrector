@@ -28,6 +28,12 @@ const INFRA_HOSTS = new Set([
   'googletagmanager.com', 'facebook.com', 'twitter.com', 'x.com',
   'instagram.com', 'youtube.com', 'linkedin.com', 'tiktok.com',
   'pinterest.com', 'reddit.com', 'whatsapp.com', 't.me',
+  // Vocabulary/namespace hosts (RDFa prefixes, JSON-LD contexts, og: meta).
+  // Pages embed `https://ogp.me/ns#` and `https://schema.org/...` markers in
+  // nearly every document; they are protocol identifiers, never successors.
+  'ogp.me', 'schema.org', 'w3.org', 'purl.org', 'xmlns.com',
+  'data-vocabulary.org', 'microformats.org', 'dublincore.org', 'rdfs.org',
+  'json-ld.org', 'vocab.org', 'opengraphprotocol.org', 'ampproject.org',
 ]);
 
 const ENTITY_MAP = { '&amp;': '&', '&lt;': '<', '&gt;': '>', '&quot;': '"', '&#39;': "'", '&apos;': "'", '&nbsp;': ' ' };

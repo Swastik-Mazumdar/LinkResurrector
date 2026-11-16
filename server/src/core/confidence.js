@@ -18,6 +18,7 @@ const WEIGHTS = {
   title_similarity: 30,
   content_similarity: 20,
   search_result: 12,
+  web_mention: 10,
   external_reference: 6,
 };
 
@@ -99,7 +100,9 @@ export function createConfidenceEngine({ config, logger }) {
     const hasStrongIdentity =
       titleSim >= 0.5 &&
       (verification.identitySparse ? true : contentSim >= 0.3);
-    const searchOnly = byType.has('search_result') && structural.length === 0;
+    const mentionOnly = byType.has('web_mention') && structural.length === 0;
+    const searchOnly =
+      (byType.has('search_result') || mentionOnly) && structural.length === 0;
 
     // Accessible-destination bonus: a structural signal is stronger when the
     // destination independently passed accessibility + identity checks.
@@ -121,15 +124,20 @@ export function createConfidenceEngine({ config, logger }) {
     if (hasStructural) {
       reasons.push(`structural migration evidence: ${structural.join(', ')}`);
     } else if (searchOnly && hasStrongIdentity) {
-      // Search discovery corroborated by strong identity — grant the
-      // corroborated weight instead of the bare search weight.
-      const bareIndex = breakdown.findIndex((item) => item.type === 'search_result');
-      const boost = SEARCH_CORROBORATED_WEIGHT - WEIGHTS.search_result;
+      // Discovery (search API or public web mentions) corroborated by strong
+      // identity — grant the corroborated weight instead of the bare weight.
+      const bareIndex = breakdown.findIndex(
+        (item) => item.type === 'search_result' || item.type === 'web_mention'
+      );
+      const bareType = breakdown[bareIndex]?.type === 'web_mention' ? 'web_mention' : 'search_result';
+      const boost = SEARCH_CORROBORATED_WEIGHT - WEIGHTS[bareType];
       if (bareIndex !== -1) breakdown[bareIndex].weight += boost;
       scoreValue += boost;
-      reasons.push('search discovery corroborated by strong identity match');
+      reasons.push('discovery corroborated by strong identity match');
     } else if (searchOnly) {
-      contradictions.push('search-only evidence without structural corroboration');
+      contradictions.push(mentionOnly
+        ? 'mention-only evidence without structural corroboration'
+        : 'search-only evidence without structural corroboration');
       scoreValue = Math.min(scoreValue, 55);
     }
 

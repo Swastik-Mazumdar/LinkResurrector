@@ -16,7 +16,7 @@ import { LrError, ERROR_CODES } from '../util/errors.js';
 import { parseAndValidateUrl } from '../util/url.js';
 
 export function createApiServer(deps) {
-  const { jobStore, jobRunner, verifyUrl, search, config, logger } = deps;
+  const { jobStore, jobRunner, verifyUrl, search, mentions = null, config, logger } = deps;
 
   const rateBuckets = new Map(); // ip -> { count, windowStart }
 
@@ -48,6 +48,9 @@ export function createApiServer(deps) {
             configured: search.coverage === 'full',
             coverage: search.coverage,
             providers: search.configuredProviders,
+          },
+          mentions: {
+            sources: mentions ?? [],
           },
           wayback: {
             endpoint: config.wayback.cdxEndpoint,

@@ -59,6 +59,7 @@ test('GET /api/health reports engine + provider coverage honestly', async () => 
     assert.equal(body.ok, true);
     assert.equal(body.providers.search.coverage, 'reduced');
     assert.equal(body.providers.search.configured, false);
+    assert.ok(Array.isArray(body.providers.mentions.sources));
   } finally {
     server.close();
   }

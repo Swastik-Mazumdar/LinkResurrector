@@ -25,6 +25,7 @@ const server = createApiServer({
   jobRunner,
   verifyUrl: engine.verify,
   search: engine.search,
+  mentions: engine.mentionSources,
   config,
   logger,
 });

@@ -216,7 +216,10 @@ export function resultToLinkPatch(result) {
   const finalResult = result?.finalResult;
   const originalStatus = result?.originalStatus ?? {};
   const verified = Boolean(finalResult?.verified && finalResult?.url);
-  const originalReachable = Boolean(originalStatus.reachable);
+  // A redirected or parked original no longer serves the original site:
+  // treat it as not-live so the vault shows 'dead' (or 'resurrected' when a
+  // verified successor exists) instead of a misleading 'active'.
+  const originalReachable = Boolean(originalStatus.reachable) && !originalStatus.suspect;
   return {
     status: verified ? 'resurrected' : originalReachable ? 'active' : 'dead',
     statusCode: originalStatus.httpStatus ?? null,

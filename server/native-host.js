@@ -60,7 +60,7 @@ async function handle(message) {
   diag('request', { type: message?.type ?? null });
   try {
     if (message.type === 'health') {
-      send({ requestId, type: 'done', result: { ok: true, runtime: 'native-messaging', searchCoverage: engine.coverage, maxDepth: config.maxDepth } });
+      send({ requestId, type: 'done', result: { ok: true, runtime: 'native-messaging', searchCoverage: engine.coverage, mentionSources: engine.mentionSources, maxDepth: config.maxDepth } });
       return;
     }
     const url = validUrl(message.url);

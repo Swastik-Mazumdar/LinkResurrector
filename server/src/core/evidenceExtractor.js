@@ -36,6 +36,9 @@ export function createEvidenceExtractor({ logger }) {
       }
       const host = parsed.hostname;
       if (!host || host === selfHost) return;
+      // Namespace URIs (e.g. https://ogp.me/ns#, https://schema.org/VideoObject)
+      // are markup vocabulary, not websites — a fragment means "identifier".
+      if (parsed.hash) return;
       if (isInfraHost(host) || host.endsWith('.archive.org') || host === 'web.archive.org') return;
       const key = `${registrableDomain(host)}|${source}`;
       if (seen.has(key)) return;

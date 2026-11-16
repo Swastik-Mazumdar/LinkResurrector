@@ -15,6 +15,7 @@ export function createOrchestrator(deps) {
     checkUrl,
     wayback,
     search,
+    mentions,
     extractEvidence,
     verifyCandidate,
     score,
@@ -85,6 +86,7 @@ export function createOrchestrator(deps) {
           status: classifyGeneration(health, generation),
           httpStatus: health.httpStatus,
           reason: health.reason,
+          suspect: health.suspect ?? null,
         });
       } else {
         const existing = migrationChain.find(
@@ -94,6 +96,7 @@ export function createOrchestrator(deps) {
           existing.status = classifyGeneration(health, generation);
           existing.httpStatus = health.httpStatus;
           existing.reason = health.reason;
+          existing.suspect = health.suspect ?? null;
         } else {
           migrationChain.push({
             url: currentUrl,
@@ -101,6 +104,7 @@ export function createOrchestrator(deps) {
             status: classifyGeneration(health, generation),
             httpStatus: health.httpStatus,
             reason: health.reason,
+            suspect: health.suspect ?? null,
           });
         }
       }
@@ -268,6 +272,35 @@ export function createOrchestrator(deps) {
         warnings.push('No search-provider credentials configured — discovery coverage is reduced (Wayback + redirects only).');
       }
 
+      // 4. Public web mentions (forums + open web) — official key-free APIs.
+      //    A forum post saying "X moved to Y" is real-world evidence; the
+      //    target still has to pass the same verification gates.
+      if (mentions && identityForNext != null) {
+        const mentionQueries = mentions.buildQueries(identityForNext);
+        if (mentionQueries.length > 0 && Date.now() - startedAt < config.timeBudgetMs) {
+          emit('extracting_evidence', 'querying public web mentions (forums)');
+          for (const query of mentionQueries) {
+            try {
+              const mentionResult = await mentions.search(query);
+              for (const item of mentionResult.results ?? []) {
+                if (registrableDomain(hostOf(item.url)) === currentRegistrable) continue;
+                addCandidate(candidates, {
+                  url: item.url,
+                  source: 'web_mention',
+                  context: `${item.provider} mention: ${item.snippet ?? item.title ?? ''}`,
+                });
+                evidenceForCurrent.push({
+                  type: 'web_mention',
+                  detail: `${item.provider} mentions ${hostOf(item.url)} for "${query}"`,
+                });
+              }
+            } catch (error) {
+              warnings.push(`Web-mention lookup failed (${query}): ${error.message}`);
+            }
+          }
+        }
+      }
+
       // Record evidence (de-duplicated by type+detail for this generation).
       const seenEvidence = new Set();
       for (const item of evidenceForCurrent) {
@@ -304,7 +337,7 @@ export function createOrchestrator(deps) {
 
         const scoring = score(
           [
-            ...evidenceForCurrent.filter((e) => !e.detail || e.detail.includes(hostOf(candidate.url)) || ['verified_redirect','official_migration_announcement','canonical_url','meta_refresh','search_result','external_reference'].includes(e.type)),
+            ...evidenceForCurrent.filter((e) => !e.detail || e.detail.includes(hostOf(candidate.url)) || ['verified_redirect','official_migration_announcement','canonical_url','meta_refresh','search_result','web_mention','external_reference'].includes(e.type)),
             { type: 'title_similarity', similarity: verification.similarities.title },
             { type: 'content_similarity', similarity: verification.similarities.content },
           ],
@@ -449,16 +482,22 @@ export function createOrchestrator(deps) {
     function classifyGeneration(health, gen) {
       if (!health.reachable) return 'dead';
       if (health.crossDomainRedirect) return 'redirected';
+      if (health.suspect) return 'suspect'; // parked/200-error shell: not the real site
       if (gen === 0) return 'alive';
       return 'alive';
     }
 
     function pickOriginalStatus(chainEntry) {
-      if (!chainEntry) return { reachable: false, httpStatus: null, reason: 'UNKNOWN' };
+      if (!chainEntry) return { reachable: false, httpStatus: null, reason: 'UNKNOWN', suspect: null, crossDomainRedirect: null };
       return {
-        reachable: chainEntry.status === 'alive' || chainEntry.status === 'redirected',
+        // Only an original that answered as itself counts as live. A
+        // cross-domain redirect or a parked/200-error shell means the
+        // original URL no longer serves the original site — the vault must
+        // show 'dead' (and recovery may resurrect it), never 'active'.
+        reachable: chainEntry.status === 'alive',
         httpStatus: chainEntry.httpStatus ?? null,
         reason: chainEntry.reason ?? null,
+        suspect: chainEntry.suspect ?? null,
       };
     }
 
@@ -584,6 +623,8 @@ function sourceToEvidenceType(source) {
       return 'meta_refresh';
     case 'search_result':
       return 'search_result';
+    case 'web_mention':
+      return 'web_mention';
     default:
       return 'external_reference';
   }
@@ -597,7 +638,7 @@ function addCandidate(map, candidate) {
     return;
   }
   // Prefer the strongest source for an already-known registrable domain.
-  const priority = ['verified_redirect', 'official_migration_announcement', 'canonical_url', 'meta_refresh', 'search_result', 'external_reference'];
+  const priority = ['verified_redirect', 'official_migration_announcement', 'canonical_url', 'meta_refresh', 'search_result', 'web_mention', 'external_reference'];
   if (priority.indexOf(candidate.source) < priority.indexOf(existing.source)) {
     map.set(key, { ...existing, ...candidate });
   }

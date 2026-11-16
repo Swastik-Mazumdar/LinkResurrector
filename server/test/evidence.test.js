@@ -113,3 +113,25 @@ test('ad/analytics infra hosts are recognized in all subdomains', () => {
   assert.equal(isInfraHost('platform.twitter.com'), true);
   assert.equal(isInfraHost('example.com'), false);
 });
+
+test('vocabulary/namespace hosts and fragment identifiers are never candidates', () => {
+  // ESPNcricinfo (and most sites) embed RDFa/JSON-LD vocabulary markers such
+  // as https://ogp.me/ns# and https://schema.org/... in nearly every page;
+  // these are markup identifiers, not successor websites.
+  const html = `
+    <html><head><title>ESPNcricinfo</title></head>
+    <body prefix="og: https://ogp.me/ns# article: https://schema.org/Article">
+      <a href="https://schema.org/SportsEvent">vocab</a>
+      <a href="https://www.w3.org/1999/xhtml/vocab#">xhtml vocab</a>
+      <a href="https://ogp.me/ns#video">og marker</a>
+      <a href="https://real-successor.example/page">real link</a>
+    </body></html>`;
+  const { candidates } = extractEvidence(html, 'https://www.espncricinfo.example/');
+  assert.ok(candidates.length >= 1);
+  for (const host of ['ogp.me', 'schema.org', 'www.w3.org']) {
+    assert.ok(!candidates.some((c) => c.host === host), `${host} must not be a candidate`);
+  }
+  assert.ok(candidates.some((c) => c.host === 'real-successor.example'));
+  assert.equal(isInfraHost('ogp.me'), true);
+  assert.equal(isInfraHost('w3.org'), true);
+});

@@ -5,6 +5,7 @@ import { createSafeFetch } from './security/ssrf.js';
 import { createHealthChecker } from './core/healthChecker.js';
 import { createWaybackClient } from './providers/wayback.js';
 import { createSearchProvider } from './providers/search.js';
+import { createMentionsProvider } from './providers/mentions.js';
 import { createEvidenceExtractor } from './core/evidenceExtractor.js';
 import { createCandidateVerifier } from './core/candidateVerifier.js';
 import { createConfidenceEngine } from './core/confidence.js';
@@ -16,12 +17,14 @@ export function createEngine({ onProgress = () => {} } = {}) {
   const checkUrl = createHealthChecker({ fetcher: safeFetch, config, logger: createLogger('health') });
   const wayback = createWaybackClient({ fetcher: safeFetch, config, logger: createLogger('wayback') });
   const search = createSearchProvider({ fetcher: safeFetch, config });
+  const mentions = createMentionsProvider({ fetcher: safeFetch, config });
   const extractEvidence = createEvidenceExtractor({ logger: createLogger('evidence') });
   const verifyCandidate = createCandidateVerifier({ checkUrl, logger: createLogger('verify') });
   const score = createConfidenceEngine({ config, logger: createLogger('confidence') });
-  const investigate = createOrchestrator({ checkUrl, wayback, search, extractEvidence, verifyCandidate, score, config, logger, onProgress });
+  const investigate = createOrchestrator({ checkUrl, wayback, search, mentions, extractEvidence, verifyCandidate, score, config, logger, onProgress });
   return {
     coverage: search.coverage,
+    mentionSources: mentions.sources,
     search,
     async recover(url, options = {}) {
       return investigate(url, { ...options, onProgress: options.onProgress ?? onProgress });

@@ -38,7 +38,7 @@ const score = createConfidenceEngine({ config, logger });
  *   wayback:  url -> { available, snapshots: [{timestamp, original, html}] }
  *   search:   { coverage, resultsByQuery }
  */
-function buildEngine({ health, waybackData, search }) {
+function buildEngine({ health, waybackData, search, mentions }) {
   const checkUrlCalls = [];
 
   const checkUrl = async (url) => {
@@ -89,11 +89,20 @@ function buildEngine({ health, waybackData, search }) {
     isPromisingResultHost: () => true,
   };
 
+  const mentionsProvider = {
+    sources: ['reddit', 'hacker-news', 'duckduckgo'],
+    async search(query) {
+      return { results: mentions?.resultsByQuery?.[query] ?? [], providers: ['reddit'] };
+    },
+    buildQueries: () => mentions?.queries ?? [],
+  };
+
   const progressEvents = [];
   const investigate = createOrchestrator({
     checkUrl,
     wayback,
     search: searchProvider,
+    mentions: mentionsProvider,
     extractEvidence,
     verifyCandidate,
     score,
@@ -148,6 +157,41 @@ test('multi-generation migration A→B→C→D via live redirects reaches genera
   assert.deepEqual(chainUrls, ['https://a.example/', 'https://b.example/', 'https://c.example/', 'https://d.example/']);
   assert.equal(result.migrationChain[3].generation, 3);
   assert.equal(result.migrationChain[3].status, 'verified_successor');
+});
+
+test('a dead site is resurrected from a forum web mention corroborated by identity', async () => {
+  const engine = buildEngine({
+    health: {
+      'https://dead.example/': dead(),
+      'https://successor.example/': live(siteIdentity('The Project', 'The official project homepage')),
+    },
+    waybackData: {},
+    mentions: {
+      queries: ['"The Project" moved to'],
+      resultsByQuery: {
+        '"The Project" moved to': [
+          {
+            url: 'https://successor.example/',
+            title: 'Where is The Project now?',
+            snippet: 'reddit mention: the new official home is https://successor.example/',
+            provider: 'reddit',
+            source: 'web_mention',
+          },
+        ],
+      },
+    },
+  });
+
+  const result = await engine.investigate('https://dead.example/', { titleHint: 'The Project' });
+  assert.equal(result.status, 'completed');
+  assert.equal(result.finalResult.url, 'https://successor.example/');
+  assert.equal(result.finalResult.verified, true);
+  // web_mention (10) + title similarity (30) + search-corroborated boost (42).
+  assert.ok(result.finalResult.confidenceScore >= 80);
+  assert.ok(result.evidence.some((e) => e.type === 'web_mention'));
+  // The original was a hard 404 — it must be reported dead, never active.
+  assert.equal(result.originalStatus.reachable, false);
+  assert.ok(result.migrationChain.every((node) => node.status !== 'redirected'));
 });
 
 test('unannounced migration discovered through archived HTML evidence', async () => {
