@@ -228,6 +228,7 @@ export function resultToLinkPatch(result) {
   const originalStatus = result?.originalStatus ?? {};
   const verified = Boolean(finalResult?.verified && finalResult?.url);
   const exactItemInactive = Boolean(finalResult?.exactItemInactive);
+  const isLastKnownUrl = Boolean(finalResult?.isLastKnownUrl);
   // A redirected, parked, or deep SPA item original no longer serves the original resource:
   // treat it as not-live so the vault shows 'resurrected' (switched to website) or 'dead'
   // instead of a misleading 'active'.
@@ -235,9 +236,11 @@ export function resultToLinkPatch(result) {
   return {
     status: verified ? 'resurrected' : originalReachable ? 'active' : 'dead',
     statusCode: originalStatus.httpStatus ?? null,
-    successorUrl: verified ? finalResult.url : null,
+    successorUrl: verified ? finalResult.url : (isLastKnownUrl ? finalResult.url : null),
     successorVerified: verified,
-    confidenceScore: verified ? finalResult.confidenceScore : null,
+    isLastKnownUrl,
+    lastKnownUrl: isLastKnownUrl ? finalResult.url : null,
+    confidenceScore: verified ? finalResult.confidenceScore : (finalResult?.confidenceScore ?? null),
     pageRecovered: verified ? Boolean(finalResult.pageRecovered) : false,
     recoveredPageUrl: verified ? (finalResult.recoveredPageUrl ?? null) : null,
     exactItemInactive,

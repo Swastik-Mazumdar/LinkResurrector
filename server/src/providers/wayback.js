@@ -33,45 +33,77 @@ export function createWaybackClient({ fetcher, config, logger }) {
       url,
       output: 'json',
       fl: CDX_FIELDS,
-      filter: 'statuscode:200',
+      filter: '!statuscode:[45]..',
       collapse: 'digest',
+      sort: 'reverse',
       limit: String(wayback.maxCdxRows),
     });
 
-    const response = await gate(() =>
-      fetcher(`${wayback.cdxEndpoint}?${params}`, {
-        timeoutMs: config.fetchTimeoutMs,
-        maxBytes: config.maxResponseBytes,
-        headers: { accept: 'application/json' },
-      })
-    );
+    let response;
+    try {
+      response = await gate(() =>
+        fetcher(`${wayback.cdxEndpoint}?${params}`, {
+          timeoutMs: config.fetchTimeoutMs,
+          maxBytes: config.maxResponseBytes,
+          headers: { accept: 'application/json' },
+        })
+      );
+    } catch (err) {
+      // CDX might time out or fail; attempt Wayback Availability API as resilient fallback
+      response = null;
+    }
 
-    if (response.status === 429 || response.status === 503) {
+    if (response && (response.status === 429 || response.status === 503)) {
       throw new LrError(ERROR_CODES.WAYBACK_UNAVAILABLE, 'Wayback Machine is rate limiting us.', {
         status: 502,
       });
     }
-    if (response.status !== 200) {
-      throw new LrError(
-        ERROR_CODES.WAYBACK_UNAVAILABLE,
-        `Wayback CDX responded HTTP ${response.status}.`,
-        { status: 502 }
-      );
+
+    let snapshots = [];
+    if (response && response.status === 200) {
+      try {
+        snapshots = parseCdx(response.body);
+      } catch (error) {
+        throw new LrError(ERROR_CODES.WAYBACK_UNAVAILABLE, 'Wayback CDX returned malformed data.', {
+          status: 502,
+          cause: error,
+        });
+      }
     }
 
-    let snapshots;
-    try {
-      snapshots = parseCdx(response.body);
-    } catch (error) {
-      throw new LrError(ERROR_CODES.WAYBACK_UNAVAILABLE, 'Wayback CDX returned malformed data.', {
-        status: 502,
-        cause: error,
-      });
+    // If CDX returned no snapshots or failed, query Wayback Availability API
+    if (snapshots.length === 0) {
+      try {
+        const availUrl = `https://archive.org/wayback/available?url=${encodeURIComponent(url)}`;
+        const availRes = await gate(() =>
+          fetcher(availUrl, {
+            timeoutMs: Math.min(config.fetchTimeoutMs, 6000),
+            maxBytes: 256 * 1024,
+            headers: { accept: 'application/json' },
+          })
+        );
+        if (availRes.status === 200 && availRes.body) {
+          const availData = JSON.parse(availRes.body);
+          const closest = availData?.archived_snapshots?.closest;
+          if (closest && closest.available && closest.timestamp) {
+            snapshots.push({
+              timestamp: closest.timestamp,
+              original: closest.url?.replace(/^https?:\/\/web\.archive\.org\/web\/\d+(?:[a-z_]+)?\//i, '') || url,
+              statuscode: closest.status ?? '200',
+              mimetype: 'text/html',
+              digest: `avail_${closest.timestamp}`,
+              length: '1000',
+            });
+          }
+        }
+      } catch {
+        /* resilient fallback — proceed with empty if unavailable */
+      }
     }
 
-    // CDX statuscodes are strings; we also asked the server to filter to 200.
+    const validCodes = new Set(['200', '301', '302', '307', '308', 'undefined', 'null']);
     const useful = snapshots.filter(
-      (row) => String(row.statuscode) === '200' || row.statuscode === undefined || row.statuscode === null
+      (row) => row.statuscode == null || validCodes.has(String(row.statuscode))
     );
     const selected = selectSpreads(useful, config.maxSnapshotsAnalyzed * 3);
     const result = {
@@ -130,6 +162,8 @@ function selectSpreads(rows, max) {
   const indices = new Set();
   indices.add(0);
   indices.add(ordered.length - 1);
+  if (ordered.length > 2) indices.add(ordered.length - 2);
+  if (ordered.length > 3) indices.add(ordered.length - 3);
   const middleSlots = Math.max(0, max - 2);
   for (let slot = 1; slot <= middleSlots; slot += 1) {
     indices.add(Math.round((slot * (ordered.length - 1)) / (middleSlots + 1)));

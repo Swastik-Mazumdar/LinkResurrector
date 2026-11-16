@@ -18,12 +18,15 @@
 import http from 'node:http';
 import https from 'node:https';
 import dns from 'node:dns';
+import zlib from 'node:zlib';
 import { LrError, ERROR_CODES } from '../util/errors.js';
 import { isPrivateIp } from '../util/ip.js';
 import { isIpLiteralHost, parseAndValidateUrl } from '../util/url.js';
 
 const USER_AGENT =
   'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36';
+const ARCHIVE_USER_AGENT =
+  'Mozilla/5.0 (compatible; LinkResurrector/1.0; +https://github.com/Swastik-Mazumdar/LinkResurrector)';
 
 export function createSafeFetch(overrides = {}) {
   // Testability: the DNS module is injectable so the security suite can
@@ -50,7 +53,7 @@ export function createSafeFetch(overrides = {}) {
     const chain = [];
     const visited = new Set();
     let current = parseAndValidateUrl(String(rawUrl));
-    let requestHeaders = buildHeaders(options.headers);
+    let requestHeaders = buildHeaders(current, options.headers);
     let response = null;
 
     for (let hop = 0; hop <= maxRedirects; hop += 1) {
@@ -110,7 +113,11 @@ export function createSafeFetch(overrides = {}) {
             details: { chain },
           });
         }
-        if (current.origin !== next.origin) requestHeaders = stripCredentialHeaders(requestHeaders);
+        if (current.origin !== next.origin) {
+          requestHeaders = stripCredentialHeaders(buildHeaders(next, requestHeaders));
+        } else {
+          requestHeaders = buildHeaders(next, requestHeaders);
+        }
         current = next;
         continue;
       }
@@ -143,13 +150,42 @@ function stripCredentialHeaders(headers) {
   }));
 }
 
-function buildHeaders(extra = {}) {
+function buildHeaders(url, extra = {}) {
+  const host = url?.hostname ? String(url.hostname).toLowerCase() : '';
+  const isArchive = host.endsWith('archive.org');
   return {
-    'user-agent': USER_AGENT,
-    accept: 'text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8',
+    'user-agent': isArchive ? ARCHIVE_USER_AGENT : USER_AGENT,
+    accept: isArchive
+      ? 'text/html,application/xhtml+xml,application/xml,application/json;q=0.9,*/*;q=0.8'
+      : 'text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8',
     'accept-language': 'en-US,en;q=0.9',
     ...extra,
   };
+}
+
+function decompressBuffer(buffer, encoding, maxBytes) {
+  if (!buffer || buffer.length === 0) return buffer;
+  const enc = String(encoding ?? '').toLowerCase().trim();
+  const opts = { maxOutputLength: maxBytes };
+  try {
+    if (enc === 'gzip' || (buffer.length > 2 && buffer[0] === 0x1f && buffer[1] === 0x8b)) {
+      return zlib.gunzipSync(buffer, opts);
+    }
+    if (enc === 'deflate') {
+      try {
+        return zlib.inflateSync(buffer, opts);
+      } catch {
+        return zlib.inflateRawSync(buffer, opts);
+      }
+    }
+    if (enc === 'br') {
+      return zlib.brotliDecompressSync(buffer, opts);
+    }
+  } catch {
+    // If decompression exceeds maxOutputLength or fails, return raw or clamp
+    return buffer;
+  }
+  return buffer;
 }
 
 /** Validates the host of a URL against the private-IP blocklist. */
@@ -250,7 +286,7 @@ function rawRequest(url, { method, headers, timeoutMs, maxBytes, truncateOnOverf
               request.destroy();
               if (!settled) {
                 settled = true;
-                const raw = Buffer.concat(chunks);
+                const raw = decompressBuffer(Buffer.concat(chunks), response.headers['content-encoding'], maxBytes);
                 const contentType = String(response.headers['content-type'] ?? '');
                 const isText = /^(text\/|application\/(json|xml|xhtml|javascript))/i.test(contentType) ||
                   contentType === '';
@@ -279,7 +315,7 @@ function rawRequest(url, { method, headers, timeoutMs, maxBytes, truncateOnOverf
         response.on('end', () => {
           if (settled) return;
           settled = true;
-          const raw = Buffer.concat(chunks);
+          const raw = decompressBuffer(Buffer.concat(chunks), response.headers['content-encoding'], maxBytes);
           const contentType = String(response.headers['content-type'] ?? '');
           const isText = /^(text\/|application\/(json|xml|xhtml|javascript))/i.test(contentType) ||
             contentType === '';
@@ -297,6 +333,16 @@ function rawRequest(url, { method, headers, timeoutMs, maxBytes, truncateOnOverf
         });
       }
     );
+
+    const timer = setTimeout(() => {
+      request.destroy(
+        new LrError(ERROR_CODES.CONNECTION_TIMEOUT, `Timed out after ${timeoutMs}ms`, {
+          details: { url: url.href },
+        })
+      );
+    }, timeoutMs);
+
+    request.on('close', () => clearTimeout(timer));
 
     request.setTimeout(timeoutMs, () => {
       request.destroy(

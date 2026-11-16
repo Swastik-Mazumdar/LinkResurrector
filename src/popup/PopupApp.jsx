@@ -346,8 +346,8 @@ export default function PopupApp() {
                         </span>
                       )}
                       {isDead && (
-                        <span className="shrink-0 rounded-full border border-rose-500/40 bg-rose-500/15 px-1.5 py-0.2 text-[9px] font-medium text-rose-400">
-                          Dead
+                        <span className={`shrink-0 rounded-full border px-1.5 py-0.2 text-[9px] font-medium ${link.isLastKnownUrl ? 'border-amber-500/40 bg-amber-500/15 text-amber-300' : 'border-rose-500/40 bg-rose-500/15 text-rose-400'}`}>
+                          {link.isLastKnownUrl ? 'Tracked · Dead' : 'Dead'}
                         </span>
                       )}
                     </div>
@@ -355,9 +355,11 @@ export default function PopupApp() {
                       <span className="truncate text-zinc-400">
                         {link.exactItemInactive
                           ? `Switched to ${domainOf(link.successorUrl)}`
-                          : isResurrected
-                            ? domainOf(link.successorUrl)
-                            : domainOf(link.url)}
+                          : link.isLastKnownUrl && link.lastKnownUrl
+                            ? `Last known: ${domainOf(link.lastKnownUrl)} (Shut down)`
+                            : isResurrected
+                              ? domainOf(link.successorUrl)
+                              : domainOf(link.url)}
                       </span>
                       <span>·</span>
                       <span className="shrink-0 text-zinc-500">

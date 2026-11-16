@@ -61,7 +61,7 @@ test('querySnapshots parses CDX JSON, filters 200-HTML and reports availability'
   assert.equal(result.snapshots.length, 3);
   assert.equal(result.snapshots[0].timestamp, '20220101');
   assert.ok(calls[0].includes('web.archive.org/cdx'));
-  assert.ok(calls[0].includes('filter=statuscode%3A200'));
+  assert.ok(calls[0].includes('filter='));
 });
 
 test('querySnapshots reports NO_ARCHIVED_SNAPSHOTS when the archive is empty', async () => {

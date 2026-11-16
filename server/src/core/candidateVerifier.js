@@ -20,7 +20,7 @@ export function createCandidateVerifier({ checkUrl, logger }) {
    * @param {object} originalContext { identity?, originalUrl? }
    */
   return async function verifyCandidate(candidate, originalContext) {
-    const health = await checkUrl(candidate.url);
+    const health = await checkUrl(candidate.url, { timeoutMs: 4500 });
     const verification = {
       url: candidate.url,
       health,

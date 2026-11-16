@@ -57,8 +57,9 @@ export function createEvidenceExtractor({ logger }) {
       });
     };
 
-    // Structured hints (historical): meta refresh, canonical, og:url.
+    // Structured hints (historical): meta refresh, js redirect, canonical, og:url.
     if (identity.metaRefresh) push(identity.metaRefresh, 'meta_refresh', 'meta refresh tag');
+    if (identity.jsRedirect) push(identity.jsRedirect, ANNOUNCEMENT_SOURCE, 'javascript location redirect');
     if (identity.canonical && hostOf(identity.canonical) !== selfHost) {
       push(identity.canonical, 'canonical_url', 'link rel=canonical');
     }

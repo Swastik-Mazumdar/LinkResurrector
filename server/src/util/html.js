@@ -20,6 +20,12 @@ const MIGRATION_PATTERNS = [
   /redirecting (?:you )?to/i,
   /you (?:will be|are being) redirected/i,
   /visit(?:ing)? us (?:at|on) our new/i,
+  /rebrand(?:ed|ing)? (?:to|as)/i,
+  /(?:is|are|has been) rebranded/i,
+  /migrat(?:ed|ing)? to/i,
+  /switch(?:ed)? to/i,
+  /official (?:mirror|backup|successor|alternative|domain)/i,
+  /(?:watch|stream|read|visit) (?:on|at) (?:our new )?/i,
 ];
 
 const INFRA_HOSTS = new Set([
@@ -34,6 +40,9 @@ const INFRA_HOSTS = new Set([
   'ogp.me', 'schema.org', 'w3.org', 'purl.org', 'xmlns.com',
   'data-vocabulary.org', 'microformats.org', 'dublincore.org', 'rdfs.org',
   'json-ld.org', 'vocab.org', 'opengraphprotocol.org', 'ampproject.org',
+  // Domain seizure and anti-piracy landing portals (not successors)
+  'alliance4creativity.com', 'ace-alliance.org', 'mpa-i.org', 'brein.nl',
+  'fbi.gov', 'ice.gov', 'justice.gov', 'europol.europa.eu', 'cityoflondon.police.uk',
 ]);
 
 const ENTITY_MAP = { '&amp;': '&', '&lt;': '<', '&gt;': '>', '&quot;': '"', '&#39;': "'", '&apos;': "'", '&nbsp;': ' ' };
@@ -84,6 +93,7 @@ export function extractIdentity(html, baseUrl) {
   const canonical = extractLinkHref(safeHtml, 'canonical', baseUrl);
   const ogUrl = metaContent(safeHtml, 'property\\s*=\\s*["\']?og:url');
   const metaRefresh = extractMetaRefresh(safeHtml, baseUrl);
+  const jsRedirect = extractJsRedirect(safeHtml, baseUrl);
 
   // Absolute http(s) URLs in the document, host-classified. Asset URLs found
   // in image/script attributes are filtered out later by extension, so a
@@ -143,7 +153,18 @@ export function extractIdentity(html, baseUrl) {
     4000
   );
 
-  return { title, description, canonical, ogUrl, metaRefresh, externalLinks, announcements, visibleText };
+  return { title, description, canonical, ogUrl, metaRefresh, jsRedirect, externalLinks, announcements, visibleText };
+}
+
+function extractJsRedirect(html, baseUrl) {
+  const pattern = /(?:window\.)?location(?:\.href|\.replace)?\s*(?:=\s*|\(\s*)['"`](https?:\/\/[^'"`\s>]+)['"`]/i;
+  const match = html.match(pattern);
+  if (!match) return '';
+  try {
+    return new URL(match[1], baseUrl).href;
+  } catch {
+    return '';
+  }
 }
 
 function extractLinkHref(html, rel, baseUrl) {

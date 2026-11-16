@@ -122,8 +122,8 @@ export default function ResurrectorView({ onSaved }) {
         <motion.div initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} className="space-y-4">
           <section className="rounded-xl border border-white/10 bg-panel/70 p-5">
             <div className="flex items-center gap-2 text-sm font-semibold text-white">
-              <Icon name={verified ? 'check' : 'activity'} className={`h-4 w-4 ${verified ? 'text-emerald-400' : 'text-amber-400'}`} />
-              {verified ? 'Latest verified successor' : originalLive ? 'Original URL is live' : result.status === 'partial' ? 'Partial recovery' : 'No verified successor'}
+              <Icon name={verified ? 'check' : finalResult?.isLastKnownUrl ? 'archive' : 'activity'} className={`h-4 w-4 ${verified ? 'text-emerald-400' : finalResult?.isLastKnownUrl ? 'text-rose-400' : 'text-amber-400'}`} />
+              {verified ? 'Latest verified successor' : finalResult?.isLastKnownUrl ? 'Last known URL before shutdown' : originalLive ? 'Original URL is live' : result.status === 'partial' ? 'Partial recovery' : 'No verified successor'}
             </div>
             <a href={safeHref(result.originalUrl)} target="_blank" rel="noreferrer" className="mt-3 block break-all text-xs text-zinc-500 hover:text-zinc-300">Original: {result.originalUrl}</a>
             {verified ? (
@@ -131,6 +131,13 @@ export default function ResurrectorView({ onSaved }) {
                 <a href={safeHref(finalResult.url)} target="_blank" rel="noreferrer" className="break-all text-base font-medium text-crimson hover:text-white">{finalResult.url}</a>
                 <div className="mt-2 text-xs text-zinc-400">
                   Heuristic confidence: {finalResult.confidenceScore}/100 · {finalResult.pageRecovered ? 'matching page recovered' : 'website identified; exact page not confirmed'}
+                </div>
+              </div>
+            ) : finalResult?.isLastKnownUrl ? (
+              <div className="mt-3">
+                <a href={safeHref(finalResult.url)} target="_blank" rel="noreferrer" className="break-all text-base font-medium text-rose-300 hover:text-white">{finalResult.url}</a>
+                <div className="mt-2 text-xs text-rose-300/80">
+                  Site permanently shut down · {finalResult.message ?? `Last known address tracked before permanent shutdown.`}
                 </div>
               </div>
             ) : result.finalResult?.url ? (

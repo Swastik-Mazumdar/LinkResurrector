@@ -9,6 +9,7 @@
 
 import { LrError, ERROR_CODES } from '../util/errors.js';
 import { getSpaBaseWebsite, hostOf, registrableDomain } from '../util/url.js';
+import { isInfraHost } from '../util/html.js';
 
 export function createOrchestrator(deps) {
   const {
@@ -266,7 +267,26 @@ export function createOrchestrator(deps) {
           logger?.debug?.('snapshot fetch failed', { url: snapshot.original, code: error.code ?? error.message });
           continue;
         }
-        if (!archived?.body) continue;
+        if (!archived) continue;
+
+        const waybackRedirectTarget = extractArchivedRedirect(archived);
+        if (
+          waybackRedirectTarget &&
+          registrableDomain(hostOf(waybackRedirectTarget)) !== currentRegistrable &&
+          !isInfraHost(hostOf(waybackRedirectTarget))
+        ) {
+          evidenceForCurrent.push({
+            type: 'verified_redirect',
+            detail: `Wayback snapshot ${snapshot.timestamp} redirected to ${hostOf(waybackRedirectTarget)}`,
+          });
+          addCandidate(candidates, {
+            url: waybackRedirectTarget,
+            source: 'verified_redirect',
+            context: `Wayback archived redirect in ${snapshot.timestamp}`,
+          });
+        }
+
+        if (!archived.body) continue;
 
         const extracted = extractEvidence(archived.body, normalizeArchivedUrl(snapshot.original), {});
         if (generation === 0 && !originalIdentity && extracted.identity?.title) {
@@ -509,6 +529,42 @@ export function createOrchestrator(deps) {
       );
     }
 
+    // If a multi-generation lineage was established through historical structural evidence
+    // (e.g. zoro.to -> aniwatch.to -> hianime.to) but the final successor is currently dead/unreachable,
+    // surface the last known URL before shutdown so users can see the complete path and the final address.
+    if (migrationChain.length > 1) {
+      const lastNode = migrationChain[migrationChain.length - 1];
+      if (lastNode && lastNode.url !== originalUrl && lastNode.suspect !== 'parked_domain') {
+        lastNode.status = 'last_known_successor';
+        warnings.push(
+          `Migration chain followed to ${lastNode.url}, which is now inactive (site permanently shut down after this address).`
+        );
+        return finish(
+          'no_successor',
+          {
+            url: lastNode.url,
+            verified: false,
+            isLastKnownUrl: true,
+            isPermanentlyDead: true,
+            confidenceScore: Math.max(bestPartial?.score ?? 0, lastNode.confidenceScore ?? 0, 70),
+            pageRecovered: false,
+            recoveredPageUrl: null,
+            reason: 'LAST_KNOWN_URL_BEFORE_SHUTDOWN',
+            message: `Last known address before permanent shutdown: ${lastNode.url}`,
+            breakdown: bestPartial?.evidence?.length ? bestPartial.evidence : [
+              {
+                type: 'historical_migration_chain',
+                weight: 70,
+                detail: `Lineage tracked across ${migrationChain.length - 1} migration(s) to ${lastNode.url}`,
+              },
+            ],
+          },
+          globalEvidence,
+          warnings
+        );
+      }
+    }
+
     // The saved URL still sends visitors somewhere, even if that destination
     // is bot-restricted and therefore unverifiable. Report it as an unverified
     // suggestion instead of showing nothing (or an invented archive link).
@@ -729,16 +785,48 @@ function addCandidate(map, candidate) {
   }
 }
 
-/** Latest two + earliest one snapshot are the most migration-relevant. */
+/** Latest snapshots + earliest one snapshot are the most migration-relevant. */
 function pickSnapshotTargets(snapshots) {
   if (!snapshots?.length) return [];
-  if (snapshots.length <= 3) return snapshots;
+  const redirects = snapshots.filter((s) => ['301', '302', '307', '308'].includes(String(s.statuscode)));
   const latestTwo = snapshots.slice(-2);
   const earliest = snapshots[0];
-  const unique = [earliest, ...latestTwo].filter(
-    (snapshot, index, list) => list.findIndex((s) => s.timestamp === snapshot.timestamp) === index
-  );
-  return unique;
+  const combined = [
+    earliest,
+    ...(redirects.length > 0 ? [redirects[0], redirects[redirects.length - 1]] : []),
+    ...latestTwo,
+  ];
+  const unique = [];
+  const seen = new Set();
+  for (const s of combined) {
+    if (s && !seen.has(s.timestamp)) {
+      seen.add(s.timestamp);
+      unique.push(s);
+    }
+  }
+  return unique.slice(0, 5);
+}
+
+/** Extracts original redirected URL from a Wayback playback / snapshot response. */
+function extractArchivedRedirect(archived) {
+  if (!archived) return null;
+  const urlsToCheck = [];
+  if (archived.finalUrl) urlsToCheck.push(archived.finalUrl);
+  if (Array.isArray(archived.chain)) {
+    for (const hop of archived.chain) {
+      if (hop.location) urlsToCheck.push(hop.location);
+      if (hop.url) urlsToCheck.push(hop.url);
+    }
+  }
+  for (const u of urlsToCheck) {
+    const match = String(u).match(/^https?:\/\/web\.archive\.org\/web\/\d+(?:[a-z_]+)?\/(https?:\/\/.+)$/i);
+    if (match) {
+      try {
+        return new URL(match[1]).href;
+      } catch {}
+    }
+  }
+  return null;
 }
 
 /** Archived CDX originals are raw historical URLs — validate + normalize. */

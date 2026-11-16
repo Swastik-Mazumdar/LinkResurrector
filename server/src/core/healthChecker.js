@@ -34,7 +34,7 @@ export function createHealthChecker({ fetcher, config, logger }) {
    * @param {string|URL} url
    * @returns {Promise<object>} normalized health record
    */
-  return async function checkUrl(url) {
+  return async function checkUrl(url, options = {}) {
     const target = String(url);
     const record = {
       url: target,
@@ -54,7 +54,7 @@ export function createHealthChecker({ fetcher, config, logger }) {
 
     try {
       const response = await fetcher(target, {
-        timeoutMs: config.fetchTimeoutMs,
+        timeoutMs: options.timeoutMs ?? config.fetchTimeoutMs,
         maxBytes: config.maxResponseBytes,
         maxRedirects: config.maxRedirects,
       });

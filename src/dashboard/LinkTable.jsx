@@ -95,7 +95,15 @@ export default function LinkTable({ links, onDelete, onUpdateCategory }) {
                               {link.confidenceScore != null && <span className="shrink-0">{link.confidenceScore}/100</span>}
                             </a>
                           )}
-                          {link.recoveryResult?.finalResult?.url && !link.recoveryResult.finalResult.verified && (
+                          {link.isLastKnownUrl && link.lastKnownUrl && (
+                            <div className="mt-1 flex items-center gap-1.5 text-xs text-rose-300">
+                              <Icon name="archive" className="h-3 w-3 shrink-0 text-rose-400" />
+                              <span className="truncate">
+                                Last known before shutdown: {shortenUrl(link.lastKnownUrl, 38)}
+                              </span>
+                            </div>
+                          )}
+                          {!link.isLastKnownUrl && link.recoveryResult?.finalResult?.url && !link.recoveryResult.finalResult.verified && (
                             <div className="mt-1 break-all text-[10px] text-amber-300">
                               Unverified candidate: {link.recoveryResult.finalResult.url}
                             </div>
