@@ -142,6 +142,9 @@ Execution Time:     ~3.3 seconds
 ## 4. Key Capabilities & Features
 
 - **Autonomous Background Monitoring**: Automatically checks saved links in the background on a 30-minute cadence (Chrome Alarms) without user interaction.
+- **Multi-Generation Rebrands & Chain Termination ($A \to B \to C$)**: Specifically tracks websites that change to completely new domains (e.g., rebranded anime, community, or streaming portals like `aniwatch` $\to$ `hianime`):
+  - Follows historical migration notices from archived HTML, live server redirects, and verified community web mentions.
+  - **Chain-Termination Guard**: If all discovered successors in the chain are *also shut down* with no further live successor, the engine halts and marks the link **Permanently Dead**—it never hallucinates or sends you to dead links or ad-spam parked domains.
 - **Save Any Website Link**: Direct URL input field in the popup allows typing or pasting any link directly, with optional tab auto-fill and notification badge cleaning (e.g. `(3) Instagram` → `Instagram`).
 - **Brand Favicon Resolution**: Displays official crisp site favicons for every link via Google's favicon service, falling back to clean initials if offline.
 - **SPA Deep-Link Detection**: Accurately recognizes deleted or private chats (Gemini, ChatGPT) or broken social posts (Instagram) and switches the destination to the working website while marking the exact item inactive.
