@@ -13,6 +13,11 @@ export function encodeNativeMessage(value) {
 export function createNativeDecoder(onMessage, onError = () => {}) {
   let buffer = Buffer.alloc(0);
   return (chunk) => {
+    if (buffer.length + chunk.length > MAX_NATIVE_MESSAGE_BYTES * 2) {
+      onError(new Error('Native Messaging frame buffer limit exceeded.'));
+      buffer = Buffer.alloc(0);
+      return;
+    }
     buffer = Buffer.concat([buffer, chunk]);
     while (buffer.length >= 4) {
       const length = buffer.readUInt32LE(0);
@@ -24,8 +29,16 @@ export function createNativeDecoder(onMessage, onError = () => {}) {
       if (buffer.length < length + 4) return;
       const body = buffer.subarray(4, length + 4);
       buffer = buffer.subarray(length + 4);
-      try { onMessage(JSON.parse(body.toString('utf8'))); }
-      catch { onError(new Error('Malformed Native Messaging JSON.')); }
+      try {
+        const parsed = JSON.parse(body.toString('utf8'));
+        if (parsed && typeof parsed === 'object' && Object.prototype.hasOwnProperty.call(parsed, '__proto__')) {
+          onError(new Error('Prohibited prototype key in Native Messaging frame.'));
+          continue;
+        }
+        onMessage(parsed);
+      } catch {
+        onError(new Error('Malformed Native Messaging JSON.'));
+      }
     }
   };
 }

@@ -114,6 +114,24 @@ test('ad/analytics infra hosts are recognized in all subdomains', () => {
   assert.equal(isInfraHost('example.com'), false);
 });
 
+test('asset URLs in image and script attributes are never candidates', () => {
+  // ESPNcricinfo archives embed its apple-touch-icon on i.imgci.com. Only
+  // real outbound anchors may become migration candidates.
+  const html = `
+    <html><head><title>ESPNcricinfo</title>
+      <link rel="apple-touch-icon" href="https://i.imgci.com/espncricinfo/ci_apple_webclip.png">
+      <meta property="og:image" content="https://i.imgci.com/espncricinfo/ci_apple_webclip.png">
+    </head><body>
+      <img src="https://i.imgci.com/espncricinfo/ci_apple_webclip.png">
+      <script src="https://assets.example.com/app.js"></script>
+      <a href="https://real-successor.example/">Cricket</a>
+    </body></html>`;
+  const { candidates } = extractEvidence(html, 'https://www.espncricinfo.example/old-page');
+  assert.equal(candidates.some((c) => c.host === 'i.imgci.com'), false);
+  assert.equal(candidates.some((c) => c.host === 'assets.example.com'), false);
+  assert.ok(candidates.some((c) => c.host === 'real-successor.example'));
+});
+
 test('vocabulary/namespace hosts and fragment identifiers are never candidates', () => {
   // ESPNcricinfo (and most sites) embed RDFa/JSON-LD vocabulary markers such
   // as https://ogp.me/ns# and https://schema.org/... in nearly every page;

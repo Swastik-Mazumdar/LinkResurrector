@@ -14,15 +14,16 @@ let inputFailed = false;
 const engine = createEngine();
 // LR_LOCK_PATH exists for deterministic testing; production uses the
 // per-user tmpdir lock so concurrent helpers on one machine cooperate.
+const uid = typeof process.getuid === 'function' ? process.getuid() : 'user';
 const lockPath = process.env.LR_LOCK_PATH
-  ?? join(tmpdir(), `linkresurrector-${typeof process.getuid === 'function' ? process.getuid() : 'user'}.lock`);
+  ?? join(tmpdir(), `linkresurrector-${uid}.lock`);
 
 /**
  * Content-free diagnostics: timestamps, PIDs and event kinds only — never
  * URLs or recovered data. Chrome discards the helper's stderr, so this
  * append-only log is the only way to see whether/why the process died.
  */
-const diagPath = join(tmpdir(), 'linkresurrector-helper-diag.log');
+const diagPath = join(tmpdir(), `linkresurrector-helper-diag-${uid}.log`);
 function diag(event, fields = {}) {
   try {
     appendFileSync(diagPath, `${JSON.stringify({ ts: new Date().toISOString(), event, pid: process.pid, ...fields })}\n`);
@@ -94,6 +95,11 @@ async function handle(message) {
         titleHint: typeof message.titleHint === 'string' ? message.titleHint.slice(0, 300) : undefined,
         onProgress: (event) => send({ requestId, type: 'progress', phase: String(event.phase ?? '').slice(0, 80), detail: String(event.detail ?? '').slice(0, 1000) }),
       });
+      // Release the cross-process slot BEFORE answering: the extension starts
+      // its next queued recovery as soon as this frame lands, and a helper
+      // launched in that window must not see a finished job's lock.
+      await releaseLock();
+      releaseLock = null;
       send({ requestId, type: 'done', result });
     } finally {
       activeRecovery = false;
@@ -123,9 +129,10 @@ async function acquireRecoveryLock() {
         if (record && Number.isInteger(record.pid) && record.pid > 0) {
           try { process.kill(record.pid, 0); alive = true; } catch (probeError) { alive = probeError.code === 'EPERM'; }
         }
-        // A live owner holds the job. A dead owner has provably released it,
-        // so reclaim immediately; a corrupt record gets the safety window.
-        if (alive) return null;
+        // A live owner holds the job (unless it timed out after 2 minutes).
+        // A dead owner has provably released it, so reclaim immediately;
+        // a corrupt record gets the safety window.
+        if (alive && Date.now() - (record?.startedAt ?? 0) < 120_000) return null;
         if (!record && Date.now() - info.mtimeMs < 5 * 60_000) return null;
         await unlink(lockPath);
       } catch (inspectError) {

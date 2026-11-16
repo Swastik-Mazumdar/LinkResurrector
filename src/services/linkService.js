@@ -138,7 +138,8 @@ export async function getLinks() {
  * Accepts { url, title?, status?, statusCode? }.
  */
 export async function addLink({ url, title, category = 'Uncategorized', status = 'checking', statusCode = null }) {
-  if (!url) throw new Error('addLink: "url" is required');
+  if (!url || typeof url !== 'string') throw new Error('addLink: "url" is required');
+  if (url.length > 2048) throw new Error('addLink: URL exceeds maximum length (2048 characters).');
 
   let normalizedUrl;
   try {
@@ -155,9 +156,11 @@ export async function addLink({ url, title, category = 'Uncategorized', status =
   const existing = links.find((link) => link.url === normalizedUrl);
   if (existing) return { added: false, reason: 'duplicate', link: existing };
 
+  const sanitizedTitle = title ? String(title).trim().slice(0, 300) : normalizedUrl;
+
   const link = {
     id: uid(),
-    title: title?.trim() || normalizedUrl,
+    title: sanitizedTitle || normalizedUrl,
     url: normalizedUrl,
     category: LINK_CATEGORIES.includes(category) ? category : 'Uncategorized',
     status,
@@ -172,6 +175,7 @@ export async function addLink({ url, title, category = 'Uncategorized', status =
 
 /** Removes a link by id. */
 export async function deleteLink(id) {
+  if (typeof id !== 'string') return;
   const links = await getLinks();
   await writeStore(
     LINKS_KEY,
@@ -181,11 +185,18 @@ export async function deleteLink(id) {
 
 /** Patch-merges a link (status transitions, health-check results, …). */
 export async function updateLink(id, patch) {
+  if (typeof id !== 'string' || !patch || typeof patch !== 'object') return null;
+  const safePatch = {};
+  for (const [key, val] of Object.entries(patch)) {
+    if (key !== '__proto__' && key !== 'constructor' && key !== 'prototype') {
+      safePatch[key] = val;
+    }
+  }
   const links = await getLinks();
   let updated = null;
   const next = links.map((link) => {
     if (link.id !== id) return link;
-    updated = { ...link, ...patch };
+    updated = { ...link, ...safePatch };
     return updated;
   });
   if (updated) await writeStore(LINKS_KEY, next);
@@ -216,10 +227,11 @@ export function resultToLinkPatch(result) {
   const finalResult = result?.finalResult;
   const originalStatus = result?.originalStatus ?? {};
   const verified = Boolean(finalResult?.verified && finalResult?.url);
-  // A redirected or parked original no longer serves the original site:
-  // treat it as not-live so the vault shows 'dead' (or 'resurrected' when a
-  // verified successor exists) instead of a misleading 'active'.
-  const originalReachable = Boolean(originalStatus.reachable) && !originalStatus.suspect;
+  const exactItemInactive = Boolean(finalResult?.exactItemInactive);
+  // A redirected, parked, or deep SPA item original no longer serves the original resource:
+  // treat it as not-live so the vault shows 'resurrected' (switched to website) or 'dead'
+  // instead of a misleading 'active'.
+  const originalReachable = Boolean(originalStatus.reachable) && !originalStatus.suspect && !exactItemInactive;
   return {
     status: verified ? 'resurrected' : originalReachable ? 'active' : 'dead',
     statusCode: originalStatus.httpStatus ?? null,
@@ -228,6 +240,7 @@ export function resultToLinkPatch(result) {
     confidenceScore: verified ? finalResult.confidenceScore : null,
     pageRecovered: verified ? Boolean(finalResult.pageRecovered) : false,
     recoveredPageUrl: verified ? (finalResult.recoveredPageUrl ?? null) : null,
+    exactItemInactive,
     archiveUrl: result?.wayback?.fallbackUrl ?? null,
     recoveryResult: result,
     recoveryCheckedAt: result?.completedAt ?? Date.now(),

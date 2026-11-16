@@ -20,18 +20,25 @@ chrome.alarms.onAlarm.addListener((alarm) => {
   if (alarm.name === ALARM_NAME) void runHealthCheck();
 });
 
-chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
-  if (message?.type === 'LR_GET_STATUS') {
+chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
+  if (sender.id && sender.id !== chrome.runtime.id) return false;
+  if (!message || typeof message !== 'object') return false;
+
+  if (message.type === 'LR_GET_STATUS') {
     sendResponse({ ok: true, engine: 'ready', mode: 'native-messaging' });
     return false;
   }
-  if (message?.type === 'LR_RUN_RECOVERY') {
+  if (message.type === 'LR_RUN_RECOVERY') {
     void runHealthCheck().then(() => sendResponse({ ok: true })).catch((error) => {
       sendResponse({ ok: false, error: String(error?.message ?? error) });
     });
     return true;
   }
-  if (message?.type === 'LR_RECOVER_LINK') {
+  if (message.type === 'LR_RECOVER_LINK') {
+    if (typeof message.linkId !== 'string') {
+      sendResponse({ ok: false, error: 'Invalid linkId' });
+      return false;
+    }
     void checkLinkById(message.linkId).then(() => sendResponse({ ok: true })).catch((error) => {
       sendResponse({ ok: false, error: String(error?.message ?? error) });
     });

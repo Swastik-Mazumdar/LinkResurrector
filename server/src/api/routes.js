@@ -207,6 +207,12 @@ export function createApiServer(deps) {
       if (text) {
         try {
           body = JSON.parse(text);
+          if (body && typeof body === 'object') {
+            const forbidden = ['__proto__', 'constructor', 'prototype'];
+            if (forbidden.some((key) => Object.prototype.hasOwnProperty.call(body, key))) {
+              return sendError(response, new LrError(ERROR_CODES.BAD_REQUEST, 'Malformed payload keys.', { status: 400 }));
+            }
+          }
         } catch {
           return sendError(response, new LrError(ERROR_CODES.BAD_REQUEST, 'Body is not valid JSON.', { status: 400 }));
         }

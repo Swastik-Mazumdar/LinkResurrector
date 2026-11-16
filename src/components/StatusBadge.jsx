@@ -26,9 +26,11 @@ const STYLES = {
     archive: true,
   },
   dead: {
-    label: 'No verified successor',
+    label: 'Permanently Dead',
+    hint: 'No verified successor was found',
     wrap: 'border-white/10 bg-white/[0.03] text-zinc-500',
     dot: 'bg-zinc-700',
+    strike: true,
   },
 };
 
@@ -43,14 +45,29 @@ const PHASE_LABELS = {
   verifying_candidates: 'Verifying candidates',
 };
 
-export default function StatusBadge({ status, detail }) {
+export default function StatusBadge({ status, detail, exactItemInactive = false }) {
+  if (exactItemInactive && status === 'resurrected') {
+    return (
+      <motion.span
+        whileHover={{ scale: 1.05 }}
+        transition={{ type: 'spring', stiffness: 400, damping: 20 }}
+        title="Exact item/chat is inactive on device — switched to main website"
+        className="inline-flex items-center gap-1.5 rounded-full border border-amber-500/40 bg-amber-500/[0.08] px-2.5 py-0.5 text-[11px] font-medium text-amber-300 whitespace-nowrap"
+      >
+        <span className="h-1.5 w-1.5 rounded-full bg-amber-400 shadow-[0_0_6px_rgba(251,191,36,0.55)]" />
+        <span>Exact Inactive · Website Live</span>
+        <Icon name="archive" className="w-3 h-3 text-amber-300" />
+      </motion.span>
+    );
+  }
+
   const style = STYLES[status] ?? STYLES.checking;
 
   return (
     <motion.span
       whileHover={{ scale: 1.05 }}
       transition={{ type: 'spring', stiffness: 400, damping: 20 }}
-      title={detail ? (PHASE_LABELS[detail] ?? detail) : undefined}
+      title={detail ? (PHASE_LABELS[detail] ?? detail) : style.hint}
       className={`inline-flex items-center gap-1.5 rounded-full border px-2.5 py-0.5 text-[11px] font-medium whitespace-nowrap ${style.wrap}`}
     >
       {style.spinner ? (

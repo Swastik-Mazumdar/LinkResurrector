@@ -85,7 +85,9 @@ export function extractIdentity(html, baseUrl) {
   const ogUrl = metaContent(safeHtml, 'property\\s*=\\s*["\']?og:url');
   const metaRefresh = extractMetaRefresh(safeHtml, baseUrl);
 
-  // Absolute http(s) URLs in the document, host-classified.
+  // Absolute http(s) URLs in the document, host-classified. Asset URLs found
+  // in image/script attributes are filtered out later by extension, so a
+  // plain-text URL in the body still counts as weak evidence.
   const externalLinks = [];
   const seenHosts = new Set();
   const urlPattern = /https?:\/\/[a-z0-9-._~%]+[a-z0-9-._~%/:?#[\]@!$&'()*+,;=]*/gi;

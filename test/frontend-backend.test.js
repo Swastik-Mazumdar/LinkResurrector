@@ -2,6 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { resurrectUrl, getBackendHealth, NATIVE_HOST_NAME } from '../src/services/backend.js';
 import { resultToLinkPatch } from '../src/services/linkService.js';
+import { safeHref } from '../src/lib/format.js';
 
 function installNativeMock(reply) {
   const original = globalThis.chrome;
@@ -65,6 +66,41 @@ test('unverified suggestions are never stored as a verified successor', () => {
   const patch = resultToLinkPatch({ finalResult: { url: 'https://possible.example/', verified: false, confidenceScore: 63 } });
   assert.equal(patch.successorUrl, null);
   assert.equal(patch.successorVerified, false);
+});
+
+test('HTTP 403 reachable live URL maps to active status', () => {
+  const patch = resultToLinkPatch({
+    status: 'completed',
+    originalStatus: { reachable: true, httpStatus: 403 },
+    finalResult: null,
+  });
+  assert.equal(patch.status, 'active');
+  assert.equal(patch.statusCode, 403);
+  assert.equal(patch.successorUrl, null);
+});
+
+test('HTTP 404 with no successor maps to dead (permanently dead in UI)', () => {
+  const patch = resultToLinkPatch({
+    status: 'no_successor',
+    originalStatus: { reachable: false, httpStatus: 404 },
+    wayback: { fallbackUrl: 'https://web.archive.org/web/20230713031404/https://aniwatch.to/' },
+    finalResult: null,
+  });
+  assert.equal(patch.status, 'dead');
+  assert.equal(patch.statusCode, 404);
+  assert.equal(patch.archiveUrl, 'https://web.archive.org/web/20230713031404/https://aniwatch.to/');
+  assert.equal(patch.successorUrl, null);
+});
+
+test('safeHref neutralizes dangerous protocol schemes to prevent DOM XSS', () => {
+  assert.equal(safeHref('https://example.com/'), 'https://example.com/');
+  assert.equal(safeHref('http://example.com/test?q=1'), 'http://example.com/test?q=1');
+  assert.equal(safeHref('javascript:alert(1)'), '#');
+  assert.equal(safeHref('data:text/html,<script>alert(1)</script>'), '#');
+  assert.equal(safeHref('vbscript:msgbox'), '#');
+  assert.equal(safeHref('file:///etc/passwd'), '#');
+  assert.equal(safeHref(null), '#');
+  assert.equal(safeHref(''), '#');
 });
 
 test('self-heal: getLinks un-sticks checks interrupted by a crash or reload', async () => {

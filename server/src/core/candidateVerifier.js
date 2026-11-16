@@ -44,6 +44,16 @@ export function createCandidateVerifier({ checkUrl, logger }) {
       return verification;
     }
 
+    // A successor must be a website. Asset responses (images, scripts, …)
+    // are reachable 200s but can never stand in for the original site — an
+    // archived image URL must not become the vault's "verified successor".
+    const contentType = String(health.contentType ?? '').toLowerCase();
+    if (contentType && !/^(?:text\/html|application\/xhtml)/.test(contentType)) {
+      verification.contradicted = true;
+      verification.contradictionReason = `candidate is not an HTML website (${contentType})`;
+      return verification;
+    }
+
     // Off-domain redirect on the candidate itself → possible next generation.
     if (health.crossDomainRedirect) {
       verification.furtherMigrationHint = health.crossDomainRedirect;
@@ -79,7 +89,7 @@ export function createCandidateVerifier({ checkUrl, logger }) {
     } else if (health.suspect === 'error_page') {
       verification.contradicted = true;
       verification.contradictionReason = 'candidate serves an error page';
-    } else if (verification.restricted) {
+    } else if (verification.restricted && candidate.source !== 'verified_redirect') {
       verification.contradicted = true;
       verification.contradictionReason = `candidate restricts bots (${health.reason}) — cannot verify identity`;
     } else if (

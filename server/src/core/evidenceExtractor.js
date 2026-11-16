@@ -12,6 +12,9 @@ import { hostOf, parseAndValidateUrl, registrableDomain } from '../util/url.js';
 
 const ANNOUNCEMENT_SOURCE = 'official_migration_announcement';
 
+/** Static assets are never a successor website, however they were extracted. */
+const ASSET_PATH = /\.(?:avif|bmp|css|eot|gif|ico|jpe?g|js|json|map|mp3|mp4|ogg|otf|pdf|png|rss|svg|ttf|webm|webp|woff2?|xml|zip)$/i;
+
 export function createEvidenceExtractor({ logger }) {
   /**
    * @param {string} html archived or live HTML
@@ -36,6 +39,7 @@ export function createEvidenceExtractor({ logger }) {
       }
       const host = parsed.hostname;
       if (!host || host === selfHost) return;
+      if (ASSET_PATH.test(parsed.pathname)) return;
       // Namespace URIs (e.g. https://ogp.me/ns#, https://schema.org/VideoObject)
       // are markup vocabulary, not websites — a fragment means "identifier".
       if (parsed.hash) return;

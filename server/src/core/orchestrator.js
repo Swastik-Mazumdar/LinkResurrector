@@ -8,7 +8,7 @@
  */
 
 import { LrError, ERROR_CODES } from '../util/errors.js';
-import { hostOf, registrableDomain } from '../util/url.js';
+import { getSpaBaseWebsite, hostOf, registrableDomain } from '../util/url.js';
 
 export function createOrchestrator(deps) {
   const {
@@ -48,6 +48,7 @@ export function createOrchestrator(deps) {
     let waybackSummary = { available: false, snapshotCount: 0, latestSnapshot: null, latestTimestamp: null, fallbackUrl: null };
     let limitReached = false;
     let bestPartial = null; // { url, score, verification, evidence } strongest unverified candidate
+    let liveRedirectSuggestion = null; // { url, score, evidence } where the original goes now
 
     emit('initializing', originalUrl);
 
@@ -116,14 +117,52 @@ export function createOrchestrator(deps) {
       if (
         health.reachable &&
         !health.crossDomainRedirect &&
-        health.restricted !== true &&
         !health.suspect
       ) {
         if (generation === 0) {
-          // Still alive at the exact URL — nothing to resurrect.
-          return finish('completed', null, [], [
-            'Original URL is still live — no resurrection was needed.',
-          ]);
+          const spaBase = getSpaBaseWebsite(currentUrl);
+          if (spaBase) {
+            // A deep item link (such as an Instagram post or a chat in Gemini/ChatGPT)
+            // where the exact resource is private/deleted/unverified on the client,
+            // while the parent SPA returns 200 shell.
+            // Switch to the main website, but record that the exact item is not active.
+            return finish(
+              'completed',
+              {
+                url: spaBase,
+                verified: true,
+                confidenceScore: 85,
+                pageRecovered: false,
+                recoveredPageUrl: null,
+                exactItemInactive: true,
+                reason: 'SPA_DEEP_LINK_FALLBACK',
+                message: 'Exact chat or post is inactive on device — switched to main website.',
+                breakdown: [
+                  {
+                    type: 'spa_deep_link_fallback',
+                    sourceUrl: currentUrl,
+                    destinationUrl: spaBase,
+                    weight: 85,
+                    snippet: 'Exact chat/post cannot be verified as active; switched to parent website.',
+                  },
+                ],
+              },
+              globalEvidence,
+              [
+                ...warnings,
+                'Exact chat/post cannot be verified as active on device; switched to parent website.',
+              ],
+              { waybackFallbackOnly: false }
+            );
+          }
+
+          // Still alive at the exact URL or within the same site — nothing to resurrect.
+          const detail = health.restricted
+            ? `Original URL responded HTTP ${health.httpStatus} (restricted/protected) but is live — no resurrection was needed.`
+            : (health.reason === 'LIVE_REDIRECT_SAME_SITE'
+                ? 'Original URL redirected within the same site and is live — no resurrection was needed.'
+                : 'Original URL is still live — no resurrection was needed.');
+          return finish('completed', null, [], [detail]);
         }
         // A successor generation is live and stayed on-domain.
         const incoming = bestPartial && bestPartial.url === currentUrl;
@@ -190,6 +229,13 @@ export function createOrchestrator(deps) {
       const evidenceForCurrent = [];
       const candidates = new Map(); // url -> { candidate items merged }
 
+      // A live redirect is where the saved URL goes *now*; archived links are
+      // history and must not outrank it (see the archived-evidence loop).
+      const liveRedirectTarget = health.crossDomainRedirect ?? null;
+      const liveRedirectDomain = liveRedirectTarget
+        ? registrableDomain(hostOf(liveRedirectTarget))
+        : null;
+
       // 1. Live cross-domain redirect = strongest direct evidence (Case A).
       if (health.crossDomainRedirect) {
         evidenceForCurrent.push({
@@ -229,6 +275,15 @@ export function createOrchestrator(deps) {
         }
 
         for (const candidate of extracted.candidates) {
+          // When the original is alive and redirects elsewhere, the live
+          // redirect target is where the site is now. Links mined out of
+          // decade-old snapshots usually point at former partners (e.g. an
+          // archived espncricinfo.com page linking to espn.co.uk) and were
+          // being reported as the successor; they must never outrank the
+          // current destination.
+          if (liveRedirectDomain && registrableDomain(hostOf(candidate.url)) !== liveRedirectDomain) {
+            continue;
+          }
           const evidenceType = sourceToEvidenceType(candidate.source);
           evidenceForCurrent.push({ type: evidenceType, detail: `found in ${snapshot.timestamp} snapshot` });
           addCandidate(candidates, candidate);
@@ -370,6 +425,14 @@ export function createOrchestrator(deps) {
             (scoring.accepted ? 'evidence accepted' : (isStructural && unreachable ? 'structural evidence names this host; currently unreachable but worth investigating historically' : 'insufficient or contradictory evidence')),
         });
 
+        if (
+          liveRedirectTarget &&
+          registrableDomain(hostOf(candidate.url)) === liveRedirectDomain &&
+          !liveRedirectSuggestion
+        ) {
+          liveRedirectSuggestion = { url: candidate.url, score: scoring.score, evidence: scoring.breakdown };
+        }
+
         if (!unreachable && !verification.contradicted && scoring.score >= config.minConfidenceToRecurse) {
           verified.push({ candidate, verification, scoring });
         } else if (unreachable && isStructural) {
@@ -440,6 +503,28 @@ export function createOrchestrator(deps) {
           pageRecovered: false,
           recoveredPageUrl: null,
           breakdown: bestPartial.evidence,
+        },
+        globalEvidence,
+        warnings
+      );
+    }
+
+    // The saved URL still sends visitors somewhere, even if that destination
+    // is bot-restricted and therefore unverifiable. Report it as an unverified
+    // suggestion instead of showing nothing (or an invented archive link).
+    if (liveRedirectSuggestion) {
+      warnings.push(
+        'The saved URL still redirects to this address, but the destination could not be verified.'
+      );
+      return finish(
+        'no_successor',
+        {
+          url: liveRedirectSuggestion.url,
+          verified: false,
+          confidenceScore: liveRedirectSuggestion.score,
+          pageRecovered: false,
+          recoveredPageUrl: null,
+          breakdown: liveRedirectSuggestion.evidence,
         },
         globalEvidence,
         warnings

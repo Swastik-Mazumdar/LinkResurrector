@@ -92,3 +92,56 @@ export function hostOf(urlLike) {
     return '';
   }
 }
+
+/**
+ * Detects whether a URL is a deep resource/item link on an SPA (e.g. dynamic
+ * chats in Gemini/ChatGPT/Claude or broken posts/reels/stories in Instagram)
+ * where the backend server responds 200 with a generic app shell, masking
+ * dead, private, or deleted individual items.
+ *
+ * Returns the fallback base website URL if a deep item is detected, or null.
+ */
+export function getSpaBaseWebsite(rawUrl) {
+  try {
+    const u = new URL(rawUrl);
+    const host = u.hostname.toLowerCase();
+    const path = u.pathname;
+
+    // Instagram deep item: /p/, /reel/, /reels/, /stories/, /tv/, /direct/
+    if (/(?:^|\.)instagram\.com$/.test(host)) {
+      if (/^\/(?:p|reel|reels|stories|tv|direct)\//i.test(path)) {
+        return `${u.protocol}//${u.host}/`;
+      }
+    }
+
+    // Google Gemini deep chat: /app/<chat_id>, /share/<chat_id>
+    if (host === 'gemini.google.com') {
+      if (/^\/(?:app|share)\/[a-zA-Z0-9_-]+/i.test(path)) {
+        return `${u.protocol}//${u.host}/app`;
+      }
+    }
+
+    // ChatGPT deep chat: /c/<chat_id>, /share/<chat_id>, /g/<id>/c/<id>
+    if (/(?:^|\.)(?:chatgpt\.com|chat\.openai\.com)$/.test(host)) {
+      if (/^\/(?:c|share|g\/[^/]+\/c)\/[a-zA-Z0-9_-]+/i.test(path)) {
+        return `${u.protocol}//${u.host}/`;
+      }
+    }
+
+    // Claude AI deep chat: /chat/<chat_id>
+    if (host === 'claude.ai') {
+      if (/^\/chat\/[a-zA-Z0-9_-]+/i.test(path)) {
+        return `${u.protocol}//${u.host}/`;
+      }
+    }
+
+    // Generic dynamic chat/thread/item subpath: e.g. /chats/<id>, /threads/<id>
+    if (/^\/(?:chats?|messages?|threads?)\/[a-zA-Z0-9_-]{8,}/i.test(path)) {
+      return `${u.protocol}//${u.host}/`;
+    }
+
+    return null;
+  } catch {
+    return null;
+  }
+}

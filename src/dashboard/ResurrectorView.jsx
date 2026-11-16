@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
 import { motion } from 'framer-motion';
 import Icon from '../components/Icon.jsx';
+import { safeHref } from '../lib/format.js';
 import { getBackendHealth, resurrectUrl } from '../services/backend.js';
 import { addLink, getLinks, LINK_CATEGORIES, resultToLinkPatch, updateLink } from '../services/linkService.js';
 
@@ -124,10 +125,10 @@ export default function ResurrectorView({ onSaved }) {
               <Icon name={verified ? 'check' : 'activity'} className={`h-4 w-4 ${verified ? 'text-emerald-400' : 'text-amber-400'}`} />
               {verified ? 'Latest verified successor' : originalLive ? 'Original URL is live' : result.status === 'partial' ? 'Partial recovery' : 'No verified successor'}
             </div>
-            <a href={result.originalUrl} target="_blank" rel="noreferrer" className="mt-3 block break-all text-xs text-zinc-500 hover:text-zinc-300">Original: {result.originalUrl}</a>
+            <a href={safeHref(result.originalUrl)} target="_blank" rel="noreferrer" className="mt-3 block break-all text-xs text-zinc-500 hover:text-zinc-300">Original: {result.originalUrl}</a>
             {verified ? (
               <div className="mt-3">
-                <a href={finalResult.url} target="_blank" rel="noreferrer" className="break-all text-base font-medium text-crimson hover:text-white">{finalResult.url}</a>
+                <a href={safeHref(finalResult.url)} target="_blank" rel="noreferrer" className="break-all text-base font-medium text-crimson hover:text-white">{finalResult.url}</a>
                 <div className="mt-2 text-xs text-zinc-400">
                   Heuristic confidence: {finalResult.confidenceScore}/100 · {finalResult.pageRecovered ? 'matching page recovered' : 'website identified; exact page not confirmed'}
                 </div>
@@ -148,7 +149,7 @@ export default function ResurrectorView({ onSaved }) {
                   <li key={`${node.generation}-${node.url}`} className="flex gap-3 text-xs">
                     <span className="flex h-5 w-5 shrink-0 items-center justify-center rounded-full border border-white/10 bg-obsidian text-[10px] text-zinc-400">{index}</span>
                     <div className="min-w-0 flex-1">
-                      <a href={node.url} target="_blank" rel="noreferrer" className="break-all text-zinc-200 hover:text-crimson">{node.url}</a>
+                      <a href={safeHref(node.url)} target="_blank" rel="noreferrer" className="break-all text-zinc-200 hover:text-crimson">{node.url}</a>
                       <div className="mt-0.5 text-zinc-500">Generation {node.generation} · {node.status}{node.httpStatus ? ` · HTTP ${node.httpStatus}` : ''}</div>
                     </div>
                   </li>
@@ -160,7 +161,7 @@ export default function ResurrectorView({ onSaved }) {
           {result.wayback?.fallbackUrl && (
             <section className="rounded-xl border border-sky-400/20 bg-sky-400/[0.03] p-4">
               <div className="text-xs font-semibold text-sky-200">Historical Wayback fallback · not a live successor</div>
-              <a href={result.wayback.fallbackUrl} target="_blank" rel="noreferrer" className="mt-1 block break-all text-xs text-sky-300 hover:text-white">{result.wayback.fallbackUrl}</a>
+              <a href={safeHref(result.wayback.fallbackUrl)} target="_blank" rel="noreferrer" className="mt-1 block break-all text-xs text-sky-300 hover:text-white">{result.wayback.fallbackUrl}</a>
               <div className="mt-1 text-[11px] text-zinc-500">{result.wayback.snapshotCount} useful captures · {result.wayback.latestTimestamp ?? 'timestamp unavailable'}</div>
             </section>
           )}
@@ -171,7 +172,7 @@ export default function ResurrectorView({ onSaved }) {
               <ul className="mt-3 space-y-2">
                 {result.candidates.map((candidate, index) => (
                   <li key={`${candidate.url}-${index}`} className="rounded-lg border border-white/5 bg-obsidian/70 p-3">
-                    <a href={candidate.url} target="_blank" rel="noreferrer" className="break-all text-xs text-zinc-200 hover:text-crimson">{candidate.url}</a>
+                    <a href={safeHref(candidate.url)} target="_blank" rel="noreferrer" className="break-all text-xs text-zinc-200 hover:text-crimson">{candidate.url}</a>
                     <div className="mt-1 text-[11px] text-zinc-500">{candidate.status}{candidate.score != null ? ` · heuristic score ${candidate.score}/100` : ''}{candidate.reason ? ` · ${candidate.reason}` : ''}</div>
                   </li>
                 ))}

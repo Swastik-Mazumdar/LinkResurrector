@@ -25,7 +25,7 @@ const VIEW_META = {
     subtitle: 'Everything you have saved, searchable and sortable.',
   },
   dead: {
-    title: 'No Verified Successor',
+    title: 'Permanently Dead',
     subtitle: 'No current successor could be verified for these URLs.',
   },
   resurrected: {
@@ -53,6 +53,20 @@ export default function DashboardApp() {
     getLinks()
       .then(setLinks)
       .catch(() => {});
+  }, []);
+
+  // The background sweep and the popup write recovery results to storage.
+  // Without this listener an open dashboard kept showing pre-check statuses
+  // until a manual reload.
+  useEffect(() => {
+    if (typeof chrome === 'undefined' || !chrome.storage?.onChanged) return undefined;
+    const onChanged = (changes, area) => {
+      if (area === 'local' && Array.isArray(changes?.lr_links?.newValue)) {
+        setLinks(changes.lr_links.newValue);
+      }
+    };
+    chrome.storage.onChanged.addListener(onChanged);
+    return () => chrome.storage.onChanged.removeListener(onChanged);
   }, []);
 
   const flash = useCallback((message, tone = 'default') => {

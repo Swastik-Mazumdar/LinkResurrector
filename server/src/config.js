@@ -61,7 +61,7 @@ export const config = {
 
   /* Per-request safety (Phase 12) */
   fetchTimeoutMs: num('LR_FETCH_TIMEOUT_MS', 12_000),
-  maxResponseBytes: num('LR_MAX_RESPONSE_BYTES', 512 * 1024),
+  maxResponseBytes: num('LR_MAX_RESPONSE_BYTES', 4 * 1024 * 1024),
   maxRedirects: num('LR_MAX_REDIRECTS', 8),
 
   /* Confidence thresholds (Phase 10) */

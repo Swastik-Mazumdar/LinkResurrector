@@ -1,7 +1,8 @@
 import { AnimatePresence, motion } from 'framer-motion';
 import Icon from '../components/Icon.jsx';
 import StatusBadge from '../components/StatusBadge.jsx';
-import { shortenUrl, timeAgo } from '../lib/format.js';
+import SiteIcon from '../components/SiteIcon.jsx';
+import { safeHref, shortenUrl, timeAgo } from '../lib/format.js';
 import { LINK_CATEGORIES } from '../services/linkService.js';
 
 /**
@@ -59,13 +60,11 @@ export default function LinkTable({ links, onDelete, onUpdateCategory }) {
                       : 'date not recorded';
                     return (
                       <div className="flex items-center gap-3">
-                        <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg border border-white/10 bg-obsidian text-xs font-bold text-crimson">
-                          {link.title.charAt(0).toUpperCase()}
-                        </span>
+                        <SiteIcon url={link.url} title={link.title} size="md" />
                         <div className="min-w-0">
                           {/* Title — follows only an independently verified successor */}
                           <a
-                            href={destinationUrl}
+                            href={safeHref(destinationUrl)}
                             target="_blank"
                             rel="noreferrer"
                             title={isResurrected ? 'Open verified successor' : 'Open saved website'}
@@ -75,7 +74,7 @@ export default function LinkTable({ links, onDelete, onUpdateCategory }) {
                           </a>
                           {/* URL — struck through on resurrected rows (dead original) */}
                           <a
-                            href={link.url}
+                            href={safeHref(link.url)}
                             target="_blank"
                             rel="noreferrer"
                             title="Open original saved URL"
@@ -83,13 +82,16 @@ export default function LinkTable({ links, onDelete, onUpdateCategory }) {
                           >{shortenUrl(link.url)}</a>
                           {link.status === 'resurrected' && link.successorUrl && (
                             <a
-                              href={link.successorUrl}
+                              href={safeHref(link.successorUrl)}
                               target="_blank"
                               rel="noreferrer"
-                              className="mt-0.5 flex items-center gap-1.5 text-xs text-emerald-300 hover:text-white"
+                              className={`mt-0.5 flex items-center gap-1.5 text-xs hover:text-white ${link.exactItemInactive ? 'text-amber-300' : 'text-emerald-300'}`}
                             >
                               <Icon name="check" className="h-3 w-3 shrink-0" />
-                              <span className="truncate">Verified successor · {shortenUrl(link.successorUrl, 42)}</span>
+                              <span className="truncate">
+                                {link.exactItemInactive ? 'Switched to website · ' : 'Verified successor · '}
+                                {shortenUrl(link.successorUrl, 42)}
+                              </span>
                               {link.confidenceScore != null && <span className="shrink-0">{link.confidenceScore}/100</span>}
                             </a>
                           )}
@@ -98,9 +100,13 @@ export default function LinkTable({ links, onDelete, onUpdateCategory }) {
                               Unverified candidate: {link.recoveryResult.finalResult.url}
                             </div>
                           )}
-                          {link.status === 'resurrected' && link.successorUrl && !link.pageRecovered && (
+                          {link.exactItemInactive ? (
+                            <div className="mt-1 text-[10px] font-medium text-amber-400">
+                              Exact chat or post inactive on device — switched to parent website.
+                            </div>
+                          ) : link.status === 'resurrected' && link.successorUrl && !link.pageRecovered ? (
                             <div className="mt-1 text-[10px] text-zinc-500">Website verified; exact page not confirmed.</div>
-                          )}
+                          ) : null}
                           <div className="mt-1 text-[10px] text-zinc-600">Saved {savedDate}</div>
                           <label className="mt-1 inline-flex items-center gap-1.5 text-[10px] text-zinc-600">
                             Group
@@ -113,17 +119,6 @@ export default function LinkTable({ links, onDelete, onUpdateCategory }) {
                               {LINK_CATEGORIES.map((category) => <option key={category} value={category}>{category}</option>)}
                             </select>
                           </label>
-                          {link.archiveUrl && (
-                            <a
-                              href={link.archiveUrl}
-                              target="_blank"
-                              rel="noreferrer"
-                              className="mt-0.5 flex items-center gap-1.5 text-xs text-white hover:text-crimson"
-                            >
-                              <Icon name="archive" className="h-3 w-3 shrink-0 text-crimson" />
-                              <span className="truncate">Wayback fallback · {shortenUrl(link.archiveUrl, 40)}</span>
-                            </a>
-                          )}
                           {link.lastError && <div className="mt-1 text-[10px] text-crimson" title={link.lastError.message}>Backend error: {link.lastError.code}</div>}
                         </div>
                       </div>
@@ -133,7 +128,11 @@ export default function LinkTable({ links, onDelete, onUpdateCategory }) {
 
                 {/* Status badge */}
                 <td className="px-4 py-3.5">
-                  <StatusBadge status={link.status} detail={link.checkingPhase} />
+                  <StatusBadge
+                    status={link.status}
+                    detail={link.checkingPhase}
+                    exactItemInactive={link.exactItemInactive}
+                  />
                 </td>
 
                 {/* Last checked */}
@@ -154,7 +153,7 @@ export default function LinkTable({ links, onDelete, onUpdateCategory }) {
                   <div className="flex items-center justify-end gap-2 opacity-60 transition-opacity group-hover:opacity-100">
                     {link.status !== 'checking' && (
                       <motion.a
-                        href={link.successorVerified && link.successorUrl ? link.successorUrl : link.url}
+                        href={safeHref(link.successorVerified && link.successorUrl ? link.successorUrl : link.url)}
                         target="_blank"
                         rel="noreferrer"
                         whileHover={{ scale: 1.05 }}
@@ -165,36 +164,6 @@ export default function LinkTable({ links, onDelete, onUpdateCategory }) {
                         className="rounded-md border border-white/10 p-1.5 text-zinc-400 hover:border-white/30 hover:text-white"
                       >
                         <Icon name="external" className="h-3.5 w-3.5" />
-                      </motion.a>
-                    )}
-                    {link.status === 'resurrected' && link.successorUrl && (
-                      <motion.a
-                        href={link.successorUrl}
-                        target="_blank"
-                        rel="noreferrer"
-                        whileHover={{ scale: 1.05 }}
-                        whileTap={{ scale: 0.92 }}
-                        transition={{ type: 'spring', stiffness: 450, damping: 20 }}
-                        title="Open verified successor"
-                        aria-label={`Open verified successor for ${link.title}`}
-                        className="rounded-md border border-emerald-400/30 bg-emerald-400/[0.06] p-1.5 text-emerald-300 hover:bg-emerald-400/10"
-                      >
-                        <Icon name="check" className="h-3.5 w-3.5" />
-                      </motion.a>
-                    )}
-                    {link.archiveUrl && (
-                      <motion.a
-                        href={link.archiveUrl}
-                        target="_blank"
-                        rel="noreferrer"
-                        whileHover={{ scale: 1.05 }}
-                        whileTap={{ scale: 0.92 }}
-                        transition={{ type: 'spring', stiffness: 450, damping: 20 }}
-                        title="Open historical Wayback fallback"
-                        aria-label={`Open archived snapshot: ${link.title}`}
-                        className="rounded-md border border-crimson/40 bg-crimson/10 p-1.5 text-crimson hover:bg-crimson/20 hover:shadow-glow-xs"
-                      >
-                        <Icon name="archive" className="h-3.5 w-3.5" />
                       </motion.a>
                     )}
                     <motion.button

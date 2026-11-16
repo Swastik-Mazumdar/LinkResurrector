@@ -38,3 +38,20 @@ export function countByStatus(links) {
     { active: 0, checking: 0, resurrected: 0, dead: 0 }
   );
 }
+
+/**
+ * Validates URLs used in href attributes to prevent protocol-based XSS (javascript:, data:, vbscript:).
+ * Only http: and https: URLs are permitted; any other scheme is safely neutralized to '#'.
+ */
+export function safeHref(rawUrl) {
+  if (typeof rawUrl !== 'string' || !rawUrl.trim()) return '#';
+  try {
+    const parsed = new URL(rawUrl.trim());
+    if (parsed.protocol === 'http:' || parsed.protocol === 'https:') {
+      return parsed.href;
+    }
+  } catch {
+    // Malformed URL
+  }
+  return '#';
+}

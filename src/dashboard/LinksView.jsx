@@ -72,7 +72,7 @@ export default function LinksView({ links, filter, showStats, onDelete, onUpdate
             sub="live destination independently verified"
           />
           <StatCard
-            label="No Verified Successor"
+            label="Permanently Dead"
             value={counts.dead}
             icon="x-circle"
             sub="no current destination verified"

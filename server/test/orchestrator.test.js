@@ -159,6 +159,39 @@ test('multi-generation migration A→B→C→D via live redirects reaches genera
   assert.equal(result.migrationChain[3].status, 'verified_successor');
 });
 
+test('a live redirect outranks an old archived redirect to a former partner site', async () => {
+  const engine = buildEngine({
+    health: {
+      // The saved URL still redirects, but the destination bot-walls us.
+      'https://brand.example/': redirectingTo('https://www.brand-portal.example/'),
+      'https://www.brand-portal.example/': {
+        reachable: true, httpStatus: 403, reason: 'HTTP_403_RESTRICTED',
+        restricted: true, suspect: null, crossDomainRedirect: null, identity: null,
+      },
+      // A former partner that a decade-old snapshot linked to.
+      'https://old-partner.example/': live(siteIdentity('Brand', 'Brand sports network homepage')),
+    },
+    waybackData: {
+      'https://brand.example/': {
+        snapshots: [{
+          timestamp: '20110304224612',
+          original: 'https://brand.example/',
+          html: siteIdentity('Brand', 'Brand sports network homepage') +
+            '<a href="https://old-partner.example/">partner site</a>',
+        }],
+      },
+    },
+  });
+
+  const result = await engine.investigate('https://brand.example/');
+
+  // The current destination is reported as verified (live redirect confirms authority)…
+  assert.equal(result.finalResult.url, 'https://www.brand-portal.example/');
+  assert.equal(result.finalResult.verified, true);
+  // …and the stale archived partner link never becomes a candidate or result.
+  assert.ok(!result.candidates.some((c) => c.url === 'https://old-partner.example/'));
+});
+
 test('a dead site is resurrected from a forum web mention corroborated by identity', async () => {
   const engine = buildEngine({
     health: {
@@ -591,6 +624,33 @@ test('multiple conflicting announcements do not crash and are recorded as eviden
   const result = await engine.investigate('https://old.example/');
   assert.ok(['no_successor', 'partial'].includes(result.status));
   assert.ok(result.candidates.length >= 1);
+});
+
+test('original URL with HTTP 403 restricted status is recognized as live without resurrecting', async () => {
+  const engine = buildEngine({
+    health: {
+      'https://restricted.example/': {
+        reachable: true, httpStatus: 403, reason: 'HTTP_403_RESTRICTED', restricted: true, suspect: null,
+        crossDomainRedirect: null, identity: null,
+      },
+    },
+    waybackData: {
+      'https://restricted.example/': {
+        snapshots: [{
+          timestamp: '20110304224612',
+          original: 'https://restricted.example/',
+          html: '<a href="https://other.example/">other site</a>',
+        }],
+      },
+    },
+  });
+
+  const result = await engine.investigate('https://restricted.example/');
+  assert.equal(result.status, 'completed');
+  assert.equal(result.finalResult, null, 'no successor should be invented for a live site');
+  assert.equal(result.originalStatus.reachable, true);
+  assert.equal(result.originalStatus.httpStatus, 403);
+  assert.equal(result.candidates.length, 0);
 });
 
 test('website migrated AFTER its last Wayback capture: redirect beats stale archive', async () => {

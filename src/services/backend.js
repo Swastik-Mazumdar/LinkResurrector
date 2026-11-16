@@ -11,14 +11,31 @@ export function verifyUrl(url) {
   return requestNative('verify', { url });
 }
 
-/** Runs recovery on the user's computer and forwards actual engine phases. */
-export async function resurrectUrl(url, { onProgress = () => {}, titleHint } = {}) {
-  // The helper serializes recovery jobs with a per-user cross-process lock,
-  // so a concurrent sweep (30-min alarm, save-time check, or another view)
-  // legitimately holds it. Retry a bounded number of times instead of
-  // surfacing a RATE_LIMITED failure to the user.
-  const MAX_ATTEMPTS = 3;
-  const RETRY_DELAY_MS = 20_000;
+const RECOVERY_LOCK_NAME = 'linkresurrector-recovery';
+
+let inProcessQueue = Promise.resolve();
+
+/**
+ * Runs recovery on the user's computer and forwards actual engine phases.
+ *
+ * Uses in-process promise chaining plus a Web Lock (across extension contexts)
+ * so concurrent recoveries queue cleanly instead of colliding.
+ */
+export function resurrectUrl(url, { onProgress = () => {}, titleHint } = {}) {
+  const task = async () => {
+    const run = () => resurrectWithRetry(url, { onProgress, titleHint });
+    const locks = globalThis.navigator?.locks;
+    return locks?.request ? locks.request(RECOVERY_LOCK_NAME, run) : run();
+  };
+  const result = inProcessQueue.then(task, task);
+  inProcessQueue = result.catch(() => {});
+  return result;
+}
+
+/** Bounded retry for the remaining cross-process case (e.g. two browsers or helper race). */
+async function resurrectWithRetry(url, { onProgress, titleHint }) {
+  const MAX_ATTEMPTS = 60;
+  const RETRY_DELAY_MS = 1500;
   for (let attempt = 1; ; attempt += 1) {
     try {
       return await requestNative('recover', { url, titleHint }, onProgress);

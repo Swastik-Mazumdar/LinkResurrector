@@ -7,7 +7,7 @@ const NAV_ITEMS = [
   { id: 'overview', label: 'Overview', icon: 'grid' },
   { id: 'resurrector', label: 'Resurrector', icon: 'activity' },
   { id: 'links', label: 'All Links', icon: 'link' },
-  { id: 'dead', label: 'No Verified Successor', icon: 'x-circle' },
+  { id: 'dead', label: 'Permanently Dead', icon: 'x-circle' },
   { id: 'resurrected', label: 'Resurrected', icon: 'archive' },
   { id: 'about', label: 'About', icon: 'info' },
 ];

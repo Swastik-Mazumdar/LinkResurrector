@@ -23,7 +23,7 @@ import { isPrivateIp } from '../util/ip.js';
 import { isIpLiteralHost, parseAndValidateUrl } from '../util/url.js';
 
 const USER_AGENT =
-  'LinkResurrector/1.0 (+https://linkresurrector.local; recovery bot; respects rate limits)';
+  'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36';
 
 export function createSafeFetch(overrides = {}) {
   // Testability: the DNS module is injectable so the security suite can
@@ -40,7 +40,8 @@ export function createSafeFetch(overrides = {}) {
    */
   return async function safeFetch(rawUrl, options = {}) {
     const timeoutMs = options.timeoutMs ?? overrides.timeoutMs ?? 12_000;
-    const maxBytes = options.maxBytes ?? overrides.maxBytes ?? 512 * 1024;
+    const maxBytes = options.maxBytes ?? overrides.maxBytes ?? 4 * 1024 * 1024;
+    const truncateOnOverflow = options.truncateOnOverflow ?? (options.maxBytes === undefined);
     const maxRedirects = options.maxRedirects ?? overrides.maxRedirects ?? 8;
     const method = (options.method ?? 'GET').toUpperCase();
     const allowPrivate = options.allowPrivateForTesting ?? false;
@@ -67,6 +68,7 @@ export function createSafeFetch(overrides = {}) {
         headers: requestHeaders,
         timeoutMs,
         maxBytes,
+        truncateOnOverflow,
         allowPrivate,
         dnsModule,
       });
@@ -144,8 +146,8 @@ function stripCredentialHeaders(headers) {
 function buildHeaders(extra = {}) {
   return {
     'user-agent': USER_AGENT,
-    accept: 'text/html,application/xhtml+xml;q=0.9,*/*;q=0.5',
-    'accept-language': 'en',
+    accept: 'text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8',
+    'accept-language': 'en-US,en;q=0.9',
     ...extra,
   };
 }
@@ -217,7 +219,7 @@ function safeLookupFactory(allowPrivate, dnsModule) {
   };
 }
 
-function rawRequest(url, { method, headers, timeoutMs, maxBytes, allowPrivate, dnsModule }) {
+function rawRequest(url, { method, headers, timeoutMs, maxBytes, truncateOnOverflow, allowPrivate, dnsModule }) {
   return new Promise((resolve, reject) => {
     const transport = url.protocol === 'https:' ? https : http;
     const agent = new transport.Agent({
@@ -234,6 +236,7 @@ function rawRequest(url, { method, headers, timeoutMs, maxBytes, allowPrivate, d
         method,
         headers,
         agent,
+        maxHeaderSize: 64 * 1024,
       },
       (response) => {
         const chunks = [];
@@ -243,6 +246,23 @@ function rawRequest(url, { method, headers, timeoutMs, maxBytes, allowPrivate, d
         response.on('data', (chunk) => {
           total += chunk.length;
           if (total > maxBytes) {
+            if (truncateOnOverflow) {
+              request.destroy();
+              if (!settled) {
+                settled = true;
+                const raw = Buffer.concat(chunks);
+                const contentType = String(response.headers['content-type'] ?? '');
+                const isText = /^(text\/|application\/(json|xml|xhtml|javascript))/i.test(contentType) ||
+                  contentType === '';
+                resolve({
+                  status: response.statusCode ?? 0,
+                  headers: response.headers,
+                  body: isText ? raw.toString('utf8') : null,
+                  truncated: true,
+                });
+              }
+              return;
+            }
             const error = new LrError(ERROR_CODES.BODY_TOO_LARGE, 'Response exceeds size limit.', {
               details: { maxBytes, url: url.href },
             });
