@@ -1,7 +1,6 @@
 {
   "name": "linkresurrector",
   "private": true,
-  "license": "UNLICENSED",
   "version": "1.0.0",
   "description": "Save, monitor and resurrect your links. Detect dead 404s and keep your bookmarks alive.",
   "type": "module",
